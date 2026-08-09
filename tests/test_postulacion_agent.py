@@ -1,5 +1,5 @@
-from agente_postulacion.agent import ApplicationAgent
-from agente_postulacion.models import PageText
+from backend.agent import ApplicationAgent
+from backend.models import PageText
 
 
 PAGES = [

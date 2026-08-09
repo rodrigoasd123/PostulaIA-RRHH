@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import sys
+from pathlib import Path
 
 import streamlit as st
 
-from agente_postulacion import ApplicationAgent
-from agente_postulacion.history import QueryHistory
-from agente_postulacion.models import Evidence
-from agente_postulacion.pdf_reader import PdfReadError, read_pdf
+# Agregar directorio raíz al sys.path para importar backend correctamente
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from backend import ApplicationAgent, QueryHistory, Evidence, PdfReadError, read_pdf
 
 st.set_page_config(page_title="PostulaIA", page_icon="📄", layout="wide", initial_sidebar_state="expanded")
 
@@ -93,12 +98,20 @@ st.markdown(
 )
 
 
+from backend.retrieval import normalize
+
+
 def render_items(title: str, icon: str, items: list[Evidence], empty: str) -> None:
     st.markdown(f"### {icon} {title}")
     if not items:
         st.caption(empty)
         return
+    seen_texts = set()
     for item in items:
+        norm_key = normalize(item.text)
+        if norm_key in seen_texts:
+            continue
+        seen_texts.add(norm_key)
         with st.container(border=True):
             st.markdown(item.text)
             st.caption(f"Fuente: página {item.page}")
@@ -113,8 +126,33 @@ with st.sidebar:
     st.markdown('<div class="brand"><div class="brand-mark">◆</div><div class="brand-name">Postula<span>IA</span></div></div>', unsafe_allow_html=True)
     st.markdown('<div class="side-label">Documento de análisis</div>', unsafe_allow_html=True)
     uploaded = st.file_uploader("Carga una convocatoria en PDF", type=["pdf"], label_visibility="collapsed")
-    use_ollama = st.toggle("Respuestas con Ollama local", value=False)
-    st.caption("Opcional, privado y gratuito · llama3.2:3b")
+    
+    st.divider()
+    st.markdown('<div class="side-label">Configuración del Agente</div>', unsafe_allow_html=True)
+    
+    default_gemini_key = os.getenv("GEMINI_API_KEY", "")
+    gemini_api_key = st.text_input(
+        "Google Gemini API Key",
+        value=default_gemini_key,
+        type="password",
+        help="Clave gratuita de Google AI Studio. Activa RAG semántico con LangChain y Gemini 1.5 Flash."
+    ).strip()
+    
+    use_ollama = st.toggle("Usar Ollama Local", value=False)
+    
+    # Determinar e informar el modo de IA activo
+    is_gemini_valid = bool(gemini_api_key and len(gemini_api_key) >= 20 and " " not in gemini_api_key)
+
+    if gemini_api_key:
+        if is_gemini_valid:
+            st.success("🤖 **Modo Activo:** Gemini 1.5 Flash (LangChain + FAISS)")
+        else:
+            st.warning("⚠️ **API Key no válida:** Formato demasiado corto o con espacios. Usando modo local.")
+    elif use_ollama:
+        st.info("🦙 **Modo Activo:** Ollama Local (Llama 3.2)")
+    else:
+        st.caption("🔍 **Modo Activo:** Búsqueda Léxica Local (Offline)")
+
     st.divider()
     st.markdown('<div class="side-label">Preguntas sugeridas</div>', unsafe_allow_html=True)
     for suggestion in (
@@ -125,7 +163,7 @@ with st.sidebar:
     ):
         st.markdown(f'<div class="prompt-chip">{suggestion}</div>', unsafe_allow_html=True)
     st.divider()
-    st.caption("🔒 El documento se procesa localmente y no se conserva.")
+    st.caption("🔒 El documento se procesa localmente con pdfplumber.")
 
 if not uploaded:
     st.markdown(
@@ -134,7 +172,7 @@ if not uploaded:
           <div class="eyebrow">✦ Asistente inteligente de postulación</div>
           <h1>Entiende la convocatoria antes de postular.</h1>
           <p>Convierte documentos extensos en requisitos claros, fechas críticas y respuestas respaldadas por evidencia.</p>
-          <div class="trust-row"><span>Procesamiento local</span><span>Citas por página</span><span>Sin costo de API</span></div>
+          <div class="trust-row"><span>Procesamiento local pdfplumber</span><span>RAG con LangChain + Gemini</span><span>Citas por página</span></div>
         </section>
         <div class="section-head"><h2>Todo lo importante, en minutos</h2><p>Una lectura guiada para tomar mejores decisiones y evitar errores de postulación.</p></div>
         <div class="feature-grid">
@@ -142,7 +180,7 @@ if not uploaded:
           <div class="feature-card"><div class="feature-icon">◇</div><h3>Alertas y requisitos</h3><p>Separa obligaciones, fechas límite, exclusiones y condiciones contractuales.</p></div>
           <div class="feature-card"><div class="feature-icon">⌕</div><h3>Preguntas con evidencia</h3><p>Responde usando únicamente el documento y muestra la página de cada hallazgo.</p></div>
         </div>
-        <div class="upload-callout"><div><strong>Comienza con una convocatoria en PDF</strong><span>Usa el panel izquierdo para cargar el documento de ejemplo o uno propio.</span></div><div>PDF · texto seleccionable · máximo 200 MB</div></div>
+        <div class="upload-callout"><div><strong>Comienza con una convocatoria en PDF</strong><span>Usa el panel izquierdo para cargar el documento de ejemplo o uno propio.</span></div><div>PDF · texto/tablas · máximo 200 MB</div></div>
         """,
         unsafe_allow_html=True,
     )
@@ -160,7 +198,7 @@ if st.session_state.get("document_key") != document_key:
     st.session_state.document_key = document_key
     st.session_state.messages = []
 
-agent = ApplicationAgent(pages, use_ollama=use_ollama)
+agent = ApplicationAgent(pages, use_ollama=use_ollama, gemini_api_key=gemini_api_key)
 analysis = agent.analysis
 
 st.markdown('<div class="eyebrow" style="color:#1e66f5">✓ Documento procesado</div>', unsafe_allow_html=True)
@@ -195,15 +233,15 @@ with chat:
         with st.chat_message("user"):
             st.markdown(question)
         with st.chat_message("assistant"):
-            with st.spinner("Buscando evidencia en el PDF..."):
+            with st.spinner("Buscando evidencia en el PDF con RAG..."):
                 result = agent.ask(question)
             st.markdown(result.answer)
         st.session_state.messages.append({"role": "assistant", "content": result.answer})
         history().add(uploaded.name, question, result.answer)
 
 with evidence_tab:
-    st.markdown("### Texto extraído por página")
-    st.caption("Úsalo para comprobar exactamente qué información leyó el agente.")
+    st.markdown("### Texto extraído por página (pdfplumber)")
+    st.caption("Úsalo para comprobar exactamente qué información y tablas leyó el agente.")
     for page in pages:
         with st.expander(f"Página {page.page}"):
             st.text(page.text)

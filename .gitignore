@@ -1,0 +1,21 @@
+# Python virtual env
+.venv/
+venv/
+ENV/
+
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Data / SQLite databases generated locally
+data/*.db
+*.sqlite3
+
+# Environment credentials
+.env
+
+# Temporary files
+tmp/
+output/
