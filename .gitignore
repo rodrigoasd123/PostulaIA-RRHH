@@ -1,0 +1,7 @@
+.venv-postulacion/
+__pycache__/
+*.pyc
+data/*.db
+output/
+tmp/
+.vscode/
