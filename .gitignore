@@ -1,5 +1,6 @@
 # Python virtual env
 .venv/
+.venv-postulacion/
 venv/
 ENV/
 
@@ -19,3 +20,4 @@ data/*.db
 # Temporary files
 tmp/
 output/
+.vscode/
