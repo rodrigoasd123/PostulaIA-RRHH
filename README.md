@@ -1,8 +1,8 @@
-# PostulaIA - Agente de Postulación (TCS Project)
+# PostulaIA - Asistente Inteligente de Convocatorias Laborales
 
-Agente Inteligente en Python que analiza bases de postulación y convocatorias laborales en PDF. Extrae requisitos obligatorios, fechas límite, condiciones contractuales, exclusiones y posibles alertas; además responde preguntas en lenguaje natural citando el número de página como evidencia.
+Agente Inteligente desarrollado en Python que analiza bases de postulación y convocatorias laborales en PDF. Extrae requisitos obligatorios, fechas límite, condiciones contractuales, exclusiones y posibles alertas; además responde preguntas en lenguaje natural citando la página exacta como evidencia.
 
-## Estructura del Repositorio (Estándar TCS)
+## Estructura del Repositorio
 
 ```text
 PostulaIA/
@@ -15,11 +15,13 @@ PostulaIA/
 │   ├── pdf_reader.py
 │   ├── rag_engine.py
 │   └── retrieval.py
-├── frontend/                 → Interfaz de usuario web en Streamlit
+├── frontend/                 → Interfaz de usuario web profesional en Streamlit
 │   └── streamlit_postulacion.py
-├── data/                     → PDFs de prueba creados por el equipo (sin datos reales)
-├── entregables/              → Video demo (1 min sin voz) y presentación PPT (5 diapositivas)
+├── data/                     → PDFs de prueba de convocatorias laborales
+├── entregables/              → Materiales de demostración y presentación
 ├── tests/                    → Pruebas unitarias automatizadas
+├── .env                      → Variables de entorno locales (GEMINI_API_KEY)
+├── .gitignore                → Archivos ignorados por Git
 ├── requirements.txt          → Dependencias de Python del proyecto
 └── README.md                 → Documentación principal del proyecto
 ```
@@ -42,18 +44,18 @@ python -m streamlit run frontend/streamlit_postulacion.py
 
 La aplicación abrirá automáticamente en `http://localhost:8501`.
 
-## Modos de Inteligencia Artificial (Modo Híbrido)
+## Configuración de Inteligencia Artificial (Modo Híbrido)
 
-1. **Modo Google Gemini 1.5 Flash (Recomendado - LangChain + FAISS):**
-   - Ingresa una clave gratuita de Google AI Studio en el campo seguro de la barra lateral (o configura la variable de entorno `GEMINI_API_KEY`).
-   - Habilita RAG semántico con vectores en memoria (FAISS) y respuestas en lenguaje natural muy fluido.
+1. **Modo Google Gemini 1.5 Flash (LangChain + FAISS):**
+   - Configura tu clave en el archivo `.env` local: `GEMINI_API_KEY=tu_clave_aqui`.
+   - El agente detectará la clave de forma transparente sin mostrar casillas en la interfaz del usuario final.
 
 2. **Modo Ollama Local (Llama 3.2):**
    - Ejecuta `ollama pull llama3.2:3b` y `ollama serve`.
-   - Activa **Usar Ollama Local** en la barra lateral para procesamiento 100% offline.
+   - Activa el interruptor **Modo Offline (Ollama Local)** en la barra lateral para procesamiento 100% local.
 
-3. **Modo Léxico Local (Por Defecto - Sin Costo / Offline):**
-   - Funciona sin necesidad de API keys ni conexión a internet mediante análisis léxico TF-IDF con citas de página.
+3. **Modo Léxico Local (Sin Costo / Offline):**
+   - Funciona de forma predeterminada sin necesidad de conexión a internet mediante análisis léxico TF-IDF con solapamiento y citas por página.
 
 ## Pruebas Unitarias
 

@@ -3,6 +3,10 @@ from __future__ import annotations
 import os
 import re
 from typing import Sequence
+from dotenv import load_dotenv
+
+# Cargar variables de entorno del archivo .env automáticamente
+load_dotenv()
 
 from .models import AgentAnswer, Evidence, PageText
 from .retrieval import LexicalRetriever
