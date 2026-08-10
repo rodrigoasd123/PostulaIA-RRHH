@@ -9,8 +9,8 @@ fragmentos verificables y número de página.
 ```powershell
 python -m venv .venv-postulacion
 .\.venv-postulacion\Scripts\Activate.ps1
-pip install -r requirements-postulacion.txt
-streamlit run streamlit_postulacion.py
+python -m pip install -r requirements.txt
+python -m streamlit run frontend/streamlit_postulacion.py
 ```
 
 La aplicación abre normalmente en `http://localhost:8501`.
@@ -32,20 +32,22 @@ cambiar el modelo mediante `OLLAMA_MODEL` y la URL mediante `OLLAMA_URL`.
 
 - El PDF se procesa en memoria y no se guarda.
 - El historial de preguntas se guarda localmente en `data/agente_postulacion.db`.
-- No se requieren API keys ni servicios de pago.
-- Los PDFs escaneados sin capa de texto necesitan OCR; el MVP informa ese caso.
+- La lectura normal y el OCR no requieren API keys ni servicios de pago.
+- Para PDFs escaneados sin capa de texto, selecciona **OCR** antes de cargarlos.
+- Gemini es opcional y requiere configurar `GEMINI_API_KEY`; Ollama y el modo léxico pueden funcionar localmente.
 - Las alertas son apoyo de lectura, no asesoría legal ni laboral.
 
 ## Pruebas
 
 ```powershell
-pytest -q tests/test_postulacion_agent.py
+python -m pytest -q
 ```
 
 ## Arquitectura
 
 ```text
-PDF -> extracción por página -> análisis de requisitos/alertas
-                            -> índice léxico -> pregunta -> evidencia citada
-                                                   -> Ollama opcional
+PDF -> lectura normal u OCR -> texto numerado por página
+                           -> análisis de requisitos/alertas
+                           -> LangChain + FAISS -> Gemini/Ollama/local
+                                                 -> evidencia citada
 ```

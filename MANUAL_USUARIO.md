@@ -4,14 +4,14 @@
 
 PostulaIA analiza convocatorias laborales en PDF. La aplicación identifica requisitos, fechas, condiciones, exclusiones y posibles alertas. También permite realizar preguntas y muestra las páginas utilizadas como evidencia.
 
-El programa funciona localmente y no requiere una API de pago.
+La lectura normal y el OCR funcionan localmente. El agente puede usar Gemini mediante una API key, Ollama local o el modo léxico sin LLM.
 
 ## 2. Requisitos
 
 - Windows 10 u 11.
 - Python 3.10 o superior.
 - Internet durante la instalación inicial de dependencias.
-- Un PDF que contenga texto seleccionable.
+- Un PDF digital o escaneado.
 
 Comprueba que Python esté instalado:
 
@@ -58,7 +58,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 Instala las dependencias:
 
 ```powershell
-python -m pip install -r requirements-postulacion.txt
+python -m pip install -r requirements.txt
 ```
 
 La instalación solo es necesaria la primera vez.
@@ -68,7 +68,7 @@ La instalación solo es necesaria la primera vez.
 Con el entorno virtual activado, ejecuta:
 
 ```powershell
-python -m streamlit run streamlit_postulacion.py
+python -m streamlit run frontend/streamlit_postulacion.py
 ```
 
 Abre esta dirección si el navegador no se inicia automáticamente:
@@ -79,13 +79,14 @@ Mantén la terminal abierta mientras utilizas la aplicación. Para detenerla, pr
 
 ## 6. Analizar una convocatoria
 
-1. Utiliza el panel lateral para cargar un PDF.
-2. Espera a que termine el procesamiento.
-3. Revisa el resumen y los contadores.
-4. Consulta los requisitos, fechas, condiciones y alertas detectadas.
-5. Abre la pestaña del documento fuente para comprobar el texto extraído.
+1. En **Método de lectura**, elige **Normal** para un PDF con texto seleccionable u **OCR** para un documento escaneado o fotografiado.
+2. Utiliza el panel lateral para cargar el PDF.
+3. Espera a que termine el procesamiento. El OCR puede tardar más porque analiza visualmente cada página.
+4. Revisa el resumen y los contadores.
+5. Consulta los requisitos, fechas, condiciones y alertas detectadas.
+6. Abre la pestaña del documento fuente para comprobar el texto extraído.
 
-El PDF debe contener texto seleccionable. Los documentos completamente escaneados todavía requieren una futura integración OCR.
+El OCR se ejecuta localmente con RapidOCR y no requiere una API key. Después de extraer el texto, el mismo agente procesa ambos tipos de documento.
 
 ## 7. Hacer preguntas
 
@@ -135,8 +136,8 @@ http://127.0.0.1:11434
 
 ## 10. Privacidad
 
-- El PDF se procesa localmente.
-- El documento no se envía a OpenAI, Google ni otros servicios externos.
+- La extracción de texto y el OCR se procesan localmente.
+- Si Gemini está configurado, el texto relevante se envía a la API de Gemini para generar respuestas. No se envía a OpenAI.
 - Ollama y Llama se ejecutan localmente.
 - Las preguntas y respuestas pueden guardarse en una base SQLite local.
 - No se recomienda utilizar datos personales reales durante demostraciones públicas.
@@ -152,7 +153,7 @@ Instala Python y activa **Add Python to PATH**.
 Ejecuta:
 
 ```powershell
-python -m pip install -r requirements-postulacion.txt
+python -m pip install -r requirements.txt
 ```
 
 ### El puerto 8501 está ocupado
@@ -160,7 +161,7 @@ python -m pip install -r requirements-postulacion.txt
 Usa otro puerto:
 
 ```powershell
-python -m streamlit run streamlit_postulacion.py --server.port 8502
+python -m streamlit run frontend/streamlit_postulacion.py --server.port 8502
 ```
 
 Luego abre <http://localhost:8502>.
@@ -181,7 +182,7 @@ ollama serve
 
 ### El PDF no contiene texto extraíble
 
-El documento probablemente está escaneado como imagen. Utiliza temporalmente un PDF digital con texto seleccionable.
+El documento probablemente está escaneado como imagen. Selecciona **OCR** en **Método de lectura** y vuelve a cargarlo.
 
 ## 12. Inicio rápido
 
@@ -189,8 +190,8 @@ El documento probablemente está escaneado como imagen. Utiliza temporalmente un
 cd "ruta\de\PostulaIA-main"
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements-postulacion.txt
-python -m streamlit run streamlit_postulacion.py
+python -m pip install -r requirements.txt
+python -m streamlit run frontend/streamlit_postulacion.py
 ```
 
 Después abre <http://localhost:8501> y carga una convocatoria en PDF.

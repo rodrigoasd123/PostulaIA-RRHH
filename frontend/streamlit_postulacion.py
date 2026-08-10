@@ -407,6 +407,11 @@ def history() -> QueryHistory:
     return QueryHistory()
 
 
+@st.cache_data(show_spinner=False)
+def load_pdf(data: bytes, reading_mode: str):
+    return read_pdf(data, mode=reading_mode)
+
+
 # --- BARRA LATERAL ---
 with st.sidebar:
     st.markdown(
@@ -415,6 +420,16 @@ with st.sidebar:
     )
     
     st.markdown('<div class="side-section-title">Documento a Analizar</div>', unsafe_allow_html=True)
+    reading_method = st.radio(
+        "Método de lectura",
+        ("Normal", "OCR"),
+        horizontal=True,
+        help="Normal extrae el texto digital. OCR reconoce el texto visible de documentos escaneados o fotografiados.",
+    )
+    if reading_method == "OCR":
+        st.caption("🔎 Para escaneos o fotos. Se procesa localmente y puede tardar más.")
+    else:
+        st.caption("⚡ Recomendado para PDFs con texto seleccionable.")
     uploaded = st.file_uploader("Carga una convocatoria en PDF", type=["pdf"], label_visibility="collapsed")
     
     use_ollama = st.toggle("Modo Offline (Ollama Local)", value=False)
@@ -436,7 +451,7 @@ with st.sidebar:
         st.markdown(f'<div class="prompt-chip">💬 {suggestion}</div>', unsafe_allow_html=True)
     
     st.divider()
-    st.caption("🔒 El documento se procesa en memoria local con máxima privacidad.")
+    st.caption("🔒 La extracción y el OCR se ejecutan localmente. Si Gemini está activo, el texto necesario se envía a su API para generar respuestas.")
 
 
 # --- VISTA PRINCIPAL SIN ARCHIVO CARGADO ---
@@ -450,6 +465,7 @@ if not uploaded:
           <div class="hero-features">
             <span>RAG Semántico Avanzado</span>
             <span>Extracción de Tablas pdfplumber</span>
+            <span>OCR local para escaneos</span>
             <span>Evidencia citada por página</span>
           </div>
         </section>
@@ -492,10 +508,13 @@ if not uploaded:
 
 # --- PROCESAMIENTO DEL DOCUMENTO ---
 data = uploaded.getvalue()
-document_key = hashlib.sha256(data).hexdigest()
+reading_mode = "ocr" if reading_method == "OCR" else "normal"
+document_key = hashlib.sha256(data + reading_mode.encode("utf-8")).hexdigest()
 
 try:
-    pages = read_pdf(data)
+    spinner_text = "Reconociendo texto con OCR local..." if reading_mode == "ocr" else "Extrayendo texto del PDF..."
+    with st.spinner(spinner_text):
+        pages = load_pdf(data, reading_mode)
 except PdfReadError as exc:
     st.error(str(exc))
     st.stop()
@@ -510,7 +529,8 @@ agent = ApplicationAgent(pages, use_ollama=use_ollama, gemini_api_key=gemini_key
 analysis = agent.analysis
 
 # --- ENCABEZADO Y DASHBOARD DE MÉTRICAS ---
-st.markdown('<div style="color:#2563eb; font-weight:700; font-size:13px; text-transform:uppercase; letter-spacing:0.1em;">✓ Documento Procesado Exitosamente</div>', unsafe_allow_html=True)
+processed_label = "OCR local" if reading_mode == "ocr" else "lectura normal"
+st.markdown(f'<div style="color:#2563eb; font-weight:700; font-size:13px; text-transform:uppercase; letter-spacing:0.1em;">✓ Documento procesado exitosamente · {processed_label}</div>', unsafe_allow_html=True)
 st.title(analysis.title)
 
 st.markdown(

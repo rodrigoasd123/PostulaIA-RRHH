@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from io import BytesIO
+from typing import Literal
+
 import pdfplumber
 from pypdf import PdfReader
 
@@ -11,9 +14,23 @@ class PdfReadError(ValueError):
     pass
 
 
-def read_pdf(data: bytes) -> list[PageText]:
+PdfReadMode = Literal["normal", "ocr"]
+
+
+def read_pdf(data: bytes, mode: PdfReadMode = "normal") -> list[PageText]:
     if not data:
-        raise PdfReadError("El archivo esta vacio.")
+        raise PdfReadError("El archivo está vacío.")
+
+    if mode == "ocr":
+        return _read_pdf_with_ocr(data)
+    if mode != "normal":
+        raise PdfReadError("El método de lectura debe ser 'normal' u 'ocr'.")
+
+    return _read_pdf_normally(data)
+
+
+def _read_pdf_normally(data: bytes) -> list[PageText]:
+    """Extract selectable text and tables without rendering the PDF."""
 
     pages: list[PageText] = []
 
@@ -54,14 +71,83 @@ def read_pdf(data: bytes) -> list[PageText]:
                 try:
                     reader.decrypt("")
                 except Exception as exc:
-                    raise PdfReadError("El PDF esta protegido con contrasena.") from exc
+                    raise PdfReadError("El PDF está protegido con contraseña.") from exc
             pages = [PageText(i, (page.extract_text() or "").strip()) for i, page in enumerate(reader.pages, 1)]
         except Exception as exc:
-            raise PdfReadError("No se pudo abrir el PDF. Verifica que no este danado.") from exc
+            raise PdfReadError("No se pudo abrir el PDF. Verifica que no esté dañado.") from exc
 
     if not any(page.text for page in pages):
         raise PdfReadError(
-            "El PDF no contiene texto extraible. Para documentos escaneados se requiere OCR."
+            "El PDF no contiene texto extraíble. Vuelve a cargarlo usando el método OCR."
+        )
+
+    return pages
+
+
+@lru_cache(maxsize=1)
+def _get_ocr_engine():
+    """Create the local OCR engine once and reuse it across Streamlit reruns."""
+    try:
+        from rapidocr import RapidOCR
+    except ImportError as exc:
+        raise PdfReadError(
+            "El modo OCR no está instalado. Ejecuta: "
+            "python -m pip install -r requirements.txt"
+        ) from exc
+
+    try:
+        return RapidOCR(params={"Global.log_level": "warning"})
+    except Exception as exc:
+        raise PdfReadError("No se pudo iniciar el motor OCR local.") from exc
+
+
+def _read_pdf_with_ocr(data: bytes) -> list[PageText]:
+    """Render each page and recognize its visible text with local OCR."""
+    try:
+        import numpy as np
+        import pypdfium2 as pdfium
+    except ImportError as exc:
+        raise PdfReadError(
+            "El modo OCR no está instalado. Ejecuta: "
+            "python -m pip install -r requirements.txt"
+        ) from exc
+
+    engine = _get_ocr_engine()
+    pages: list[PageText] = []
+    source = BytesIO(data)
+
+    try:
+        document = pdfium.PdfDocument(source)
+    except Exception as exc:
+        raise PdfReadError("No se pudo abrir el PDF. Verifica que no esté dañado.") from exc
+
+    try:
+        for page_number in range(1, len(document) + 1):
+            page = document[page_number - 1]
+            bitmap = None
+            try:
+                # 144 DPI is a useful balance between OCR accuracy, memory and speed.
+                bitmap = page.render(scale=2.0)
+                image = np.asarray(bitmap.to_pil().convert("RGB"))
+                result = engine(image)
+                texts = getattr(result, "txts", None) or ()
+                page_text = "\n".join(text.strip() for text in texts if text and text.strip())
+                pages.append(PageText(page_number, page_text))
+            finally:
+                if bitmap is not None:
+                    bitmap.close()
+                page.close()
+    except PdfReadError:
+        raise
+    except Exception as exc:
+        raise PdfReadError("No se pudo procesar el documento con OCR.") from exc
+    finally:
+        document.close()
+        source.close()
+
+    if not any(page.text for page in pages):
+        raise PdfReadError(
+            "El OCR no pudo reconocer texto. Prueba con un escaneo más nítido o con mayor resolución."
         )
 
     return pages
