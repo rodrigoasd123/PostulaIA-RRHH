@@ -39,12 +39,13 @@ class HybridRAGEngine:
         self.llm = None
 
         if LANGCHAIN_AVAILABLE and is_valid_gemini_key(self.gemini_api_key):
-            # 1. Inicializar modelo LLM Gemini 1.5 Flash (Free Tier)
+            # 1. Inicializar modelo LLM Gemini con max_retries=1 para evitar reintentos infinitos
             try:
                 self.llm = ChatGoogleGenerativeAI(
                     model="gemini-1.5-flash",
                     google_api_key=self.gemini_api_key,
-                    temperature=0.2
+                    temperature=0.2,
+                    max_retries=1
                 )
             except Exception as exc:
                 print(f"[RAG Engine Warning] No se pudo inicializar Gemini LLM: {exc}")
@@ -66,10 +67,11 @@ class HybridRAGEngine:
                 self.chunks = splitter.split_documents(documents)
                 
                 if self.chunks:
-                    # Usar el modelo activo de embeddings: models/text-embedding-004
+                    # Usar el modelo de embeddings con max_retries=1
                     embeddings = GoogleGenerativeAIEmbeddings(
                         model="models/text-embedding-004",
-                        google_api_key=self.gemini_api_key
+                        google_api_key=self.gemini_api_key,
+                        max_retries=1
                     )
                     self.vectorstore = FAISS.from_documents(self.chunks, embeddings)
             except Exception as exc:
@@ -92,8 +94,8 @@ class HybridRAGEngine:
         return self.lexical_retriever.search(question, limit=limit)
 
     def ask_gemini(self, question: str, evidence: list[Evidence]) -> str | None:
-        """Genera respuesta usando el LLM Gemini 1.5 Flash de LangChain."""
-        if not self.llm or not evidence:
+        """Genera respuesta probando modelos activos de Gemini con fallback inteligente."""
+        if not evidence or not self.gemini_api_key:
             return None
 
         context = "\n\n".join(f"[Página {e.page}] {e.text}" for e in evidence)
@@ -107,12 +109,24 @@ class HybridRAGEngine:
             "RESPUESTA:"
         )
 
-        try:
-            response = self.llm.invoke(prompt)
-            return response.content.strip() if hasattr(response, "content") else str(response).strip()
-        except Exception as exc:
-            print(f"[RAG Engine Error] Fallo al consultar Gemini API: {exc}")
-            return None
+        # Probar modelos compatibles con Google AI Studio / Gemini API sin bucles de reintento
+        for model_name in ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-pro"]:
+            try:
+                llm_runner = ChatGoogleGenerativeAI(
+                    model=model_name,
+                    google_api_key=self.gemini_api_key,
+                    temperature=0.2,
+                    max_retries=1
+                )
+                response = llm_runner.invoke(prompt)
+                ans = response.content.strip() if hasattr(response, "content") else str(response).strip()
+                if ans:
+                    return ans
+            except Exception as exc:
+                print(f"[RAG Engine Info] Modelo {model_name} no disponible ({exc}), intentando siguiente opción...")
+                continue
+
+        return None
 
     @property
     def is_gemini_active(self) -> bool:
