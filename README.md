@@ -57,8 +57,10 @@ Para probar el modo OCR usa `data/convocatoria_administrativo_escaneada_ocr.pdf`
 
 ## Configuración de Inteligencia Artificial (Modo Híbrido)
 
-1. **Modo Google Gemini (LangChain + FAISS):**
-   - Configura tu clave en el archivo `.env` local: `GEMINI_API_KEY=tu_clave_aqui`.
+1. **Modo Google Gemini gratuito (LangChain + FAISS):**
+   - Copia `.env.example` como `.env` y coloca tu clave: `GEMINI_API_KEY=tu_clave_aqui`.
+   - El modelo de respuestas es `gemini-3.5-flash-lite` y los embeddings usan `gemini-embedding-001`, ambos disponibles en el nivel gratuito.
+   - El programa solo permite los modelos Flash-Lite gratuitos indicados en `backend/rag_engine.py`; no usa modelos Pro.
    - El agente detectará la clave de forma transparente sin mostrar casillas en la interfaz del usuario final.
 
 2. **Modo Ollama Local (Llama 3.2):**

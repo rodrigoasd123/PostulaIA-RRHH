@@ -22,9 +22,25 @@ except ImportError:
     LANGCHAIN_AVAILABLE = False
 
 
+FREE_GEMINI_MODELS = (
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+)
+DEFAULT_FREE_GEMINI_MODEL = FREE_GEMINI_MODELS[0]
+FREE_GEMINI_EMBEDDING_MODEL = "models/gemini-embedding-001"
+
+
 def is_valid_gemini_key(key: str) -> bool:
     """Verifica que la clave tenga un formato válido de API Key de Google (largo >= 20 caracteres y sin espacios)."""
     return bool(key and len(key) >= 20 and " " not in key)
+
+
+def resolve_free_gemini_models(requested_model: str | None = None) -> tuple[str, ...]:
+    """Return only free-tier models, prioritizing a valid configured choice."""
+    requested = (requested_model or os.getenv("GEMINI_MODEL") or "").strip()
+    if requested in FREE_GEMINI_MODELS:
+        return (requested,) + tuple(model for model in FREE_GEMINI_MODELS if model != requested)
+    return FREE_GEMINI_MODELS
 
 
 class HybridRAGEngine:
@@ -33,6 +49,8 @@ class HybridRAGEngine:
         # Sanitizar estrictamente la API Key para evitar 'Illegal header value' en gRPC
         key_raw = (gemini_api_key or os.getenv("GEMINI_API_KEY") or "").strip()
         self.gemini_api_key = re.sub(r'[\r\n\t\s"\']', '', key_raw)
+        self.free_gemini_models = resolve_free_gemini_models()
+        self.gemini_model = self.free_gemini_models[0]
         
         self.lexical_retriever = LexicalRetriever(pages)
         self.vectorstore = None
@@ -42,7 +60,7 @@ class HybridRAGEngine:
             # 1. Inicializar modelo LLM Gemini con max_retries=1 para evitar reintentos infinitos
             try:
                 self.llm = ChatGoogleGenerativeAI(
-                    model="gemini-3.5-flash-lite",
+                    model=self.gemini_model,
                     google_api_key=self.gemini_api_key,
                     max_retries=1
                 )
@@ -68,7 +86,7 @@ class HybridRAGEngine:
                 if self.chunks:
                     # Usar el modelo de embeddings con max_retries=1
                     embeddings = GoogleGenerativeAIEmbeddings(
-                        model="models/gemini-embedding-001",
+                        model=FREE_GEMINI_EMBEDDING_MODEL,
                         google_api_key=self.gemini_api_key,
                         max_retries=1
                     )
@@ -108,13 +126,8 @@ class HybridRAGEngine:
             "RESPUESTA:"
         )
 
-        # Probar modelos compatibles con Google AI Studio / Gemini API sin bucles de reintento
-        for model_name in [
-            "gemini-3.5-flash-lite",
-            "gemini-3.5-flash",
-            "gemini-3.6-flash",
-            "gemini-3.1-pro-preview",
-        ]:
+        # Usar exclusivamente modelos Flash-Lite disponibles en el nivel gratuito.
+        for model_name in self.free_gemini_models:
             try:
                 llm_runner = ChatGoogleGenerativeAI(
                     model=model_name,

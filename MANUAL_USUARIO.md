@@ -4,7 +4,7 @@
 
 PostulaIA analiza convocatorias laborales en PDF. La aplicación identifica requisitos, fechas, condiciones, exclusiones y posibles alertas. También permite realizar preguntas y muestra las páginas utilizadas como evidencia.
 
-La lectura normal y el OCR funcionan localmente. El agente puede usar Gemini mediante una API key, Ollama local o el modo léxico sin LLM.
+La lectura normal y el OCR funcionan localmente. El agente puede usar Gemini Flash-Lite mediante una API key gratuita, Ollama local o el modo léxico sin LLM. PostulaIA no usa modelos Gemini Pro.
 
 ## 2. Requisitos
 

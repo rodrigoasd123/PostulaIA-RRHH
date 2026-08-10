@@ -436,7 +436,12 @@ with st.sidebar:
     
     # Estado del agente inteligente
     if not use_ollama:
-        st.markdown('<div class="status-badge">🟢 Agente Inteligente Listo</div>', unsafe_allow_html=True)
+        if os.getenv("GEMINI_API_KEY", "").strip():
+            st.markdown('<div class="status-badge">🟢 Gemini gratuito listo</div>', unsafe_allow_html=True)
+            st.caption("Modelo: gemini-3.5-flash-lite · nivel gratuito")
+        else:
+            st.markdown('<div class="status-badge">🟢 Modo local listo</div>', unsafe_allow_html=True)
+            st.caption("Configura GEMINI_API_KEY para activar Gemini gratuito.")
     else:
         st.markdown('<div class="status-badge" style="color:#60a5fa!important;border-color:#3b82f6;">🦙 Modo Local Activo</div>', unsafe_allow_html=True)
 
