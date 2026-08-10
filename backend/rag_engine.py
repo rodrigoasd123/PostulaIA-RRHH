@@ -42,16 +42,15 @@ class HybridRAGEngine:
             # 1. Inicializar modelo LLM Gemini con max_retries=1 para evitar reintentos infinitos
             try:
                 self.llm = ChatGoogleGenerativeAI(
-                    model="gemini-1.5-flash",
+                    model="gemini-3.5-flash-lite",
                     google_api_key=self.gemini_api_key,
-                    temperature=0.2,
                     max_retries=1
                 )
             except Exception as exc:
                 print(f"[RAG Engine Warning] No se pudo inicializar Gemini LLM: {exc}")
                 self.llm = None
 
-            # 2. Inicializar Embeddings (text-embedding-004) y VectorDB local (FAISS)
+            # 2. Inicializar embeddings de Gemini y VectorDB local (FAISS)
             try:
                 documents = [
                     Document(page_content=p.text, metadata={"page": p.page})
@@ -69,7 +68,7 @@ class HybridRAGEngine:
                 if self.chunks:
                     # Usar el modelo de embeddings con max_retries=1
                     embeddings = GoogleGenerativeAIEmbeddings(
-                        model="models/text-embedding-004",
+                        model="models/gemini-embedding-001",
                         google_api_key=self.gemini_api_key,
                         max_retries=1
                     )
@@ -110,12 +109,16 @@ class HybridRAGEngine:
         )
 
         # Probar modelos compatibles con Google AI Studio / Gemini API sin bucles de reintento
-        for model_name in ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-pro"]:
+        for model_name in [
+            "gemini-3.5-flash-lite",
+            "gemini-3.5-flash",
+            "gemini-3.6-flash",
+            "gemini-3.1-pro-preview",
+        ]:
             try:
                 llm_runner = ChatGoogleGenerativeAI(
                     model=model_name,
                     google_api_key=self.gemini_api_key,
-                    temperature=0.2,
                     max_retries=1
                 )
                 response = llm_runner.invoke(prompt)
