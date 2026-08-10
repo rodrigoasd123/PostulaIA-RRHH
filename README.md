@@ -58,10 +58,11 @@ Para probar el modo OCR usa `data/convocatoria_administrativo_escaneada_ocr.pdf`
 ## Configuración de Inteligencia Artificial (Modo Híbrido)
 
 1. **Modo Google Gemini gratuito (LangChain + FAISS):**
-   - Copia `.env.example` como `.env` y coloca tu clave: `GEMINI_API_KEY=tu_clave_aqui`.
+   - Cada usuario puede pegar su propia clave gratuita en el campo protegido de la barra lateral. La aplicación no la guarda en archivos.
+   - Para uso personal también puedes copiar `.env.example` como `.env` y colocar `GEMINI_API_KEY=tu_clave_aqui`; `.env` está excluido de Git.
    - El modelo de respuestas es `gemini-3.5-flash-lite` y los embeddings usan `gemini-embedding-001`, ambos disponibles en el nivel gratuito.
    - El programa solo permite los modelos Flash-Lite gratuitos indicados en `backend/rag_engine.py`; no usa modelos Pro.
-   - El agente detectará la clave de forma transparente sin mostrar casillas en la interfaz del usuario final.
+   - No publiques ni compartas una API key personal: cada usuario debe utilizar la suya.
 
 2. **Modo Ollama Local (Llama 3.2):**
    - Ejecuta `ollama pull llama3.2:3b` y `ollama serve`.
@@ -69,6 +70,7 @@ Para probar el modo OCR usa `data/convocatoria_administrativo_escaneada_ocr.pdf`
 
 3. **Modo Léxico Local (Sin Costo / Offline):**
    - Funciona de forma predeterminada sin necesidad de conexión a internet mediante análisis léxico TF-IDF con solapamiento y citas por página.
+   - Por eso cualquier persona puede descargar y probar PostulaIA incluso sin una cuenta de Gemini.
 
 ## Pruebas Unitarias
 

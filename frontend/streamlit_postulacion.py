@@ -412,6 +412,9 @@ def load_pdf(data: bytes, reading_mode: str):
     return read_pdf(data, mode=reading_mode)
 
 
+configured_gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+
+
 # --- BARRA LATERAL ---
 with st.sidebar:
     st.markdown(
@@ -431,17 +434,27 @@ with st.sidebar:
     else:
         st.caption("⚡ Recomendado para PDFs con texto seleccionable.")
     uploaded = st.file_uploader("Carga una convocatoria en PDF", type=["pdf"], label_visibility="collapsed")
-    
+
+    st.markdown('<div class="side-section-title">Inteligencia Artificial</div>', unsafe_allow_html=True)
+    session_gemini_key = st.text_input(
+        "API key gratuita de Gemini (opcional)",
+        type="password",
+        placeholder="Pega aquí tu clave de Google AI Studio",
+        help="La clave introducida se conserva únicamente durante esta sesión y PostulaIA no la escribe en archivos.",
+    ).strip()
+    gemini_key = session_gemini_key or configured_gemini_key
+
     use_ollama = st.toggle("Modo Offline (Ollama Local)", value=False)
     
     # Estado del agente inteligente
     if not use_ollama:
-        if os.getenv("GEMINI_API_KEY", "").strip():
+        if gemini_key:
             st.markdown('<div class="status-badge">🟢 Gemini gratuito listo</div>', unsafe_allow_html=True)
-            st.caption("Modelo: gemini-3.5-flash-lite · nivel gratuito")
+            key_source = "clave de esta sesión" if session_gemini_key else "clave local privada"
+            st.caption(f"gemini-3.5-flash-lite · {key_source}")
         else:
             st.markdown('<div class="status-badge">🟢 Modo local listo</div>', unsafe_allow_html=True)
-            st.caption("Configura GEMINI_API_KEY para activar Gemini gratuito.")
+            st.caption("Funciona sin API key. Añade una clave gratuita para activar Gemini.")
     else:
         st.markdown('<div class="status-badge" style="color:#60a5fa!important;border-color:#3b82f6;">🦙 Modo Local Activo</div>', unsafe_allow_html=True)
 
@@ -528,8 +541,7 @@ if st.session_state.get("document_key") != document_key:
     st.session_state.document_key = document_key
     st.session_state.messages = []
 
-# Cargar API Key desde .env de forma transparente
-gemini_key = os.getenv("GEMINI_API_KEY", "")
+# Usa primero la clave introducida en la sesión y, si no existe, la clave local de .env.
 agent = ApplicationAgent(pages, use_ollama=use_ollama, gemini_api_key=gemini_key)
 analysis = agent.analysis
 
@@ -539,7 +551,7 @@ st.markdown(f'<div style="color:#2563eb; font-weight:700; font-size:13px; text-t
 st.title(analysis.title)
 
 st.markdown(
-    '<div class="privacy-banner">🛡️ <div><strong>Análisis Privado y Verificado</strong><br>El documento ha sido analizado localmente. Las respuestas del agente citan siempre la evidencia del documento original.</div></div>',
+    '<div class="privacy-banner">🛡️ <div><strong>Análisis Privado y Verificado</strong><br>La extracción se realiza localmente. Si Gemini está activo, solo se envía el texto necesario para responder y siempre se cita la evidencia original.</div></div>',
     unsafe_allow_html=True
 )
 

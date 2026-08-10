@@ -100,7 +100,17 @@ Abre la pestaña **Pregúntale al agente** y escribe preguntas como:
 
 Una referencia como `[p. 2]` significa que la evidencia se encuentra en la página 2 del PDF.
 
-## 8. Modo básico sin LLM
+## 8. Gemini gratuito opcional
+
+PostulaIA puede utilizar Gemini sin compartir la clave del creador de la aplicación:
+
+1. Crea una clave gratuita en Google AI Studio.
+2. Pégala en **API key gratuita de Gemini (opcional)**, en la barra lateral.
+3. Comprueba que aparezca el estado **Gemini gratuito listo**.
+
+La clave introducida no se escribe en archivos y permanece únicamente en la sesión de Streamlit. Si no añades una clave, PostulaIA sigue funcionando con búsqueda local y evidencia por página.
+
+## 9. Modo básico sin LLM
 
 PostulaIA funciona sin instalar un modelo de inteligencia artificial. En este modo utiliza búsqueda léxica para localizar fragmentos relevantes y devuelve la evidencia con su número de página.
 
@@ -108,7 +118,7 @@ Deja desactivada la opción **Respuestas con Ollama local**.
 
 Este modo no necesita API key, cuenta, tarjeta de crédito ni conexión permanente a internet.
 
-## 9. Modo opcional con Llama 3.2
+## 10. Modo opcional con Llama 3.2
 
 Para obtener respuestas mejor redactadas, instala Ollama desde:
 
@@ -134,15 +144,16 @@ No se utiliza una API key. PostulaIA se comunica con Ollama dentro de la computa
 http://127.0.0.1:11434
 ```
 
-## 10. Privacidad
+## 11. Privacidad
 
 - La extracción de texto y el OCR se procesan localmente.
 - Si Gemini está configurado, el texto relevante se envía a la API de Gemini para generar respuestas. No se envía a OpenAI.
+- Las claves introducidas en la interfaz no se guardan en el proyecto ni se suben a GitHub.
 - Ollama y Llama se ejecutan localmente.
 - Las preguntas y respuestas pueden guardarse en una base SQLite local.
 - No se recomienda utilizar datos personales reales durante demostraciones públicas.
 
-## 11. Problemas frecuentes
+## 12. Problemas frecuentes
 
 ### `python` no se reconoce
 
@@ -184,7 +195,7 @@ ollama serve
 
 El documento probablemente está escaneado como imagen. Selecciona **OCR** en **Método de lectura** y vuelve a cargarlo.
 
-## 12. Inicio rápido
+## 13. Inicio rápido
 
 ```powershell
 cd "ruta\de\PostulaIA-main"
