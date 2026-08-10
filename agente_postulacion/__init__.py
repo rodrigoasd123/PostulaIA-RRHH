@@ -1,5 +1,4 @@
-"""Agente local para analizar bases de postulacion en PDF."""
+"""Compatibilidad con la nueva estructura backend."""
+from backend import ApplicationAgent, QueryHistory, Evidence, PageText, PdfReadError, read_pdf
 
-from .agent import ApplicationAgent
-
-__all__ = ["ApplicationAgent"]
+__all__ = ["ApplicationAgent", "QueryHistory", "Evidence", "PageText", "PdfReadError", "read_pdf"]
