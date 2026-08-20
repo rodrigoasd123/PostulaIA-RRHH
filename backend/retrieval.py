@@ -12,7 +12,7 @@ SENTENCE_RE = re.compile(r"(?<=[.!?;:])\s+|\n+")
 STOPWORDS = {
     "para", "como", "esta", "este", "estos", "estas", "desde", "hasta", "sobre",
     "entre", "donde", "cuando", "cual", "cuales", "quien", "tiene", "debe", "del",
-    "las", "los", "una", "uno", "unos", "unas", "que", "por", "con", "sin", "sus",
+    "las", "los", "una", "uno", "unos", "unas", "que", "por", "con", "sin", "sus", "de",
     "son", "ser", "sea", "se", "al", "el", "la", "un", "y", "o", "en", "es", "mi",
 }
 

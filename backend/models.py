@@ -32,3 +32,33 @@ class AgentAnswer:
     answer: str
     evidence: list[Evidence]
     found: bool
+
+
+@dataclass(frozen=True)
+class ScreeningCriterion:
+    identifier: str
+    text: str
+    page: int
+    terms: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class CriterionMatch:
+    criterion: ScreeningCriterion
+    coverage: float
+    status: str
+    matched_terms: tuple[str, ...]
+    cv_evidence: Evidence | None = None
+
+
+@dataclass
+class CandidateReview:
+    filename: str
+    score: int
+    matches: list[CriterionMatch] = field(default_factory=list)
+
+
+@dataclass
+class CriteriaExtraction:
+    criteria: list[ScreeningCriterion] = field(default_factory=list)
+    excluded_sensitive: list[Evidence] = field(default_factory=list)

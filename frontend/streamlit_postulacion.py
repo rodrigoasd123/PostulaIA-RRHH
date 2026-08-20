@@ -16,11 +16,21 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from backend import ApplicationAgent, QueryHistory, Evidence, PdfReadError, read_pdf
+from backend import (
+    ApplicationAgent,
+    CandidateReview,
+    Evidence,
+    PdfReadError,
+    build_review_context,
+    extract_criteria,
+    load_candidate_documents,
+    read_pdf,
+    screen_candidates,
+)
 from backend.retrieval import normalize
 
 st.set_page_config(
-    page_title="PostulaIA - Asistente de Convocatorias Laborales",
+    page_title="PostulaIA RR. HH. - Revisión de CV",
     page_icon="✨",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -402,199 +412,329 @@ def render_items(title: str, icon: str, items: list[Evidence], empty: str) -> No
             st.caption(f"📍 Fuente: página {item.page}")
 
 
-@st.cache_resource(show_spinner=False)
-def history() -> QueryHistory:
-    return QueryHistory()
-
-
 @st.cache_data(show_spinner=False)
 def load_pdf(data: bytes, reading_mode: str):
     return read_pdf(data, mode=reading_mode)
 
 
 configured_gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+MAX_PDF_BYTES = 20 * 1024 * 1024
+
+
+def _unique_candidate_name(original: str, used: set[str]) -> str:
+    if original not in used:
+        return original
+    path = Path(original)
+    counter = 2
+    while True:
+        candidate = f"{path.stem} ({counter}){path.suffix}"
+        if candidate not in used:
+            return candidate
+        counter += 1
+
+
+def _render_review(review: CandidateReview) -> None:
+    st.markdown(f"### {review.filename}")
+    st.caption(
+        f"Coincidencia documental: {review.score}/100. "
+        "Este valor mide presencia de términos; no determina idoneidad ni una decisión laboral."
+    )
+    for match in review.matches:
+        icon = "✅" if match.status == "Coincidencia alta" else "🟡" if match.status == "Coincidencia parcial" else "⚪"
+        with st.expander(
+            f"{icon} {match.criterion.identifier} · {match.status} · {int(match.coverage * 100)}%",
+            expanded=match.status != "Coincidencia alta",
+        ):
+            st.markdown(f"**Requisito:** {match.criterion.text}")
+            st.caption(f"Fuente del requisito: perfil del puesto, página {match.criterion.page}")
+            terms = ", ".join(match.matched_terms) if match.matched_terms else "Ninguno"
+            st.markdown(f"**Términos encontrados:** {terms}")
+            if match.cv_evidence:
+                st.markdown(f"**Evidencia del CV (página {match.cv_evidence.page}):**")
+                st.write(match.cv_evidence.text)
+            else:
+                st.info("No se encontró un fragmento suficiente en el CV. Requiere revisión humana.")
 
 
 # --- BARRA LATERAL ---
 with st.sidebar:
     st.markdown(
-        '<div class="brand-container"><div class="brand-icon">✨</div><div class="brand-title">Postula<span>IA</span></div></div>',
-        unsafe_allow_html=True
+        '<div class="brand-container"><div class="brand-icon">👥</div><div class="brand-title">Postula<span>IA</span> RR.HH.</div></div>',
+        unsafe_allow_html=True,
     )
-    
-    st.markdown('<div class="side-section-title">Documento a Analizar</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="side-section-title">Documentos del proceso</div>', unsafe_allow_html=True)
     reading_method = st.radio(
         "Método de lectura",
         ("Normal", "OCR"),
         horizontal=True,
-        help="Normal extrae el texto digital. OCR reconoce el texto visible de documentos escaneados o fotografiados.",
+        help="Normal extrae texto digital. OCR reconoce el texto visible de PDFs escaneados.",
     )
-    if reading_method == "OCR":
-        st.caption("🔎 Para escaneos o fotos. Se procesa localmente y puede tardar más.")
-    else:
-        st.caption("⚡ Recomendado para PDFs con texto seleccionable.")
-    uploaded = st.file_uploader("Carga una convocatoria en PDF", type=["pdf"], label_visibility="collapsed")
+    reading_mode = "ocr" if reading_method == "OCR" else "normal"
+    st.caption("🔎 OCR local para escaneos; puede tardar más." if reading_mode == "ocr" else "⚡ Recomendado para PDFs con texto seleccionable.")
 
-    st.markdown('<div class="side-section-title">Inteligencia Artificial</div>', unsafe_allow_html=True)
+    job_profile = st.file_uploader(
+        "1. Perfil del puesto o convocatoria",
+        type=["pdf"],
+        key="job_profile",
+    )
+    candidate_files = st.file_uploader(
+        "2. CV de postulantes",
+        type=["pdf"],
+        accept_multiple_files=True,
+        key="candidate_cvs",
+        help="Puedes cargar hasta 20 CV por ejecución.",
+    )
+
+    st.markdown('<div class="side-section-title">Asistente opcional</div>', unsafe_allow_html=True)
     session_gemini_key = st.text_input(
-        "API key gratuita de Gemini (opcional)",
+        "API key gratuita de Gemini",
         type="password",
-        placeholder="Pega aquí tu clave de Google AI Studio",
-        help="La clave introducida se conserva únicamente durante esta sesión y PostulaIA no la escribe en archivos.",
+        placeholder="Opcional: clave de Google AI Studio",
+        help="Se conserva solo durante esta sesión y no se escribe en archivos.",
     ).strip()
     gemini_key = session_gemini_key or configured_gemini_key
-
     use_ollama = st.toggle("Modo Offline (Ollama Local)", value=False)
-    
-    # Estado del agente inteligente
-    if not use_ollama:
-        if gemini_key:
-            st.markdown('<div class="status-badge">🟢 Gemini gratuito listo</div>', unsafe_allow_html=True)
-            key_source = "clave de esta sesión" if session_gemini_key else "clave local privada"
-            st.caption(f"gemini-3.5-flash-lite · {key_source}")
-        else:
-            st.markdown('<div class="status-badge">🟢 Modo local listo</div>', unsafe_allow_html=True)
-            st.caption("Funciona sin API key. Añade una clave gratuita para activar Gemini.")
+
+    if use_ollama:
+        st.markdown('<div class="status-badge" style="color:#60a5fa!important;border-color:#3b82f6;">🦙 Ollama activado</div>', unsafe_allow_html=True)
+    elif gemini_key:
+        st.markdown('<div class="status-badge">🟢 Gemini listo para consultas</div>', unsafe_allow_html=True)
+        st.caption("El ranking no usa Gemini; siempre se calcula localmente.")
     else:
-        st.markdown('<div class="status-badge" style="color:#60a5fa!important;border-color:#3b82f6;">🦙 Modo Local Activo</div>', unsafe_allow_html=True)
+        st.markdown('<div class="status-badge">🟢 Comparador local listo</div>', unsafe_allow_html=True)
+        st.caption("El ranking funciona sin API key.")
 
     st.divider()
-    st.markdown('<div class="side-section-title">Consultas Frecuentes</div>', unsafe_allow_html=True)
-    for suggestion in (
-        "¿Cuáles son los requisitos obligatorios?",
-        "¿Cuál es la fecha límite de postulación?",
-        "¿Qué condiciones contractuales contempla?",
-        "¿Cuáles son los motivos de descalificación?",
-    ):
-        st.markdown(f'<div class="prompt-chip">💬 {suggestion}</div>', unsafe_allow_html=True)
-    
-    st.divider()
-    st.caption("🔒 La extracción y el OCR se ejecutan localmente. Si Gemini está activo, el texto necesario se envía a su API para generar respuestas.")
+    st.caption(
+        "🔒 Los PDF, el OCR y el puntaje se procesan localmente y no se guardan. "
+        "Si activas Gemini, solo se envían fragmentos recuperados al hacer una consulta."
+    )
 
 
-# --- VISTA PRINCIPAL SIN ARCHIVO CARGADO ---
-if not uploaded:
+if not job_profile or not candidate_files:
     st.markdown(
         """
         <section class="hero-card">
-          <div class="hero-tag">✨ Asistente de Convocatorias Laborales</div>
-          <h1>Analiza y entiende cualquier convocatoria antes de postular.</h1>
-          <p>Extrae instantáneamente requisitos clave, plazos críticos, salarios y condiciones contractuales sin leer decenas de páginas de bases.</p>
+          <div class="hero-tag">👥 Asistente de revisión para Recursos Humanos</div>
+          <h1>Compara CV con requisitos verificables, sin delegar la decisión.</h1>
+          <p>Carga el perfil del puesto y varios CV. PostulaIA identifica coincidencias documentales, muestra brechas y conserva la evidencia para que tu equipo realice la evaluación final.</p>
           <div class="hero-features">
-            <span>RAG Semántico Avanzado</span>
-            <span>Extracción de Tablas pdfplumber</span>
-            <span>OCR local para escaneos</span>
-            <span>Evidencia citada por página</span>
+            <span>Ranking determinista</span>
+            <span>OCR local</span>
+            <span>Evidencia por página</span>
+            <span>Revisión humana obligatoria</span>
           </div>
         </section>
 
-        <div style="margin: 32px 0 16px;">
-          <h2>Todo lo importante en un solo lugar</h2>
-          <p style="color: #64748b; margin-top: 4px;">Optimiza tu tiempo de postulación y reduce errores de expediente.</p>
-        </div>
-
         <div class="feature-grid">
           <div class="feature-card">
-            <div class="feature-icon-wrapper">🎯</div>
-            <h3>Resumen Accionable</h3>
-            <p>Identifica los aspectos clave del puesto, funciones principales y experiencia requerida.</p>
+            <div class="feature-icon-wrapper">1</div>
+            <h3>Define el perfil</h3>
+            <p>Sube una convocatoria o descripción de puesto con requisitos explícitos.</p>
           </div>
           <div class="feature-card">
-            <div class="feature-icon-wrapper">⚖️</div>
-            <h3>Requisitos y Alertas</h3>
-            <p>Clasifica plazos límite, sueldos, exclusiones y cláusulas que requieren tu atención.</p>
+            <div class="feature-icon-wrapper">2</div>
+            <h3>Carga los CV</h3>
+            <p>Procesa hasta veinte postulantes con lectura normal u OCR local.</p>
           </div>
           <div class="feature-card">
-            <div class="feature-icon-wrapper">💬</div>
-            <h3>Preguntas con Evidencia</h3>
-            <p>Consulta cualquier duda en lenguaje natural y obtén respuestas respaldadas por el número de página exacto.</p>
+            <div class="feature-icon-wrapper">3</div>
+            <h3>Revisa la evidencia</h3>
+            <p>Prioriza la lectura y valida cada coincidencia antes de decidir.</p>
           </div>
-        </div>
-
-        <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 18px; padding: 22px 28px; display: flex; align-items: center; justify-content: space-between; gap: 20px;">
-          <div>
-            <strong style="color: #1e40af; font-size: 16px; display: block; margin-bottom: 4px;">¿Listo para analizar una convocatoria?</strong>
-            <span style="color: #3b82f6; font-size: 14px;">Utiliza la barra lateral para subir un documento PDF de postulación.</span>
-          </div>
-          <span style="background: #2563eb; color: white; padding: 8px 16px; border-radius: 10px; font-weight: 700; font-size: 13px;">PDF · Hasta 200 MB</span>
         </div>
         """,
         unsafe_allow_html=True,
     )
+    if job_profile and not candidate_files:
+        st.info("El perfil está listo. Agrega al menos un CV en la barra lateral.")
+    elif candidate_files and not job_profile:
+        st.info("Los CV están listos. Agrega el perfil del puesto en la barra lateral.")
     st.stop()
 
+if len(candidate_files) > 20:
+    st.error("Puedes analizar como máximo 20 CV por ejecución. Retira algunos archivos para continuar.")
+    st.stop()
 
-# --- PROCESAMIENTO DEL DOCUMENTO ---
-data = uploaded.getvalue()
-reading_mode = "ocr" if reading_method == "OCR" else "normal"
-document_key = hashlib.sha256(data + reading_mode.encode("utf-8")).hexdigest()
-
+profile_data = job_profile.getvalue()
+if len(profile_data) > MAX_PDF_BYTES:
+    st.error("El perfil supera el límite de 20 MB. Reduce el archivo para continuar.")
+    st.stop()
 try:
-    spinner_text = "Reconociendo texto con OCR local..." if reading_mode == "ocr" else "Extrayendo texto del PDF..."
-    with st.spinner(spinner_text):
-        pages = load_pdf(data, reading_mode)
+    with st.spinner("Leyendo el perfil del puesto..."):
+        profile_pages = load_pdf(profile_data, reading_mode)
 except PdfReadError as exc:
-    st.error(str(exc))
+    st.error(f"No se pudo leer el perfil del puesto: {exc}")
     st.stop()
 
-if st.session_state.get("document_key") != document_key:
-    st.session_state.document_key = document_key
+extraction = extract_criteria(profile_pages)
+if not extraction.criteria:
+    st.warning(
+        "No se detectaron requisitos explícitos utilizables en el perfil. "
+        "Agrega requisitos de experiencia, formación, conocimientos o habilidades antes de comparar CV."
+    )
+    with st.expander("Revisar texto extraído del perfil"):
+        for page in profile_pages:
+            st.markdown(f"**Página {page.page}**")
+            st.text(page.text)
+    st.stop()
+
+candidate_payloads: dict[str, bytes] = {}
+used_names: set[str] = set()
+bundle_hasher = hashlib.sha256(profile_data + reading_mode.encode("utf-8"))
+
+with st.spinner(f"Procesando {len(candidate_files)} CV..."):
+    for candidate_file in candidate_files:
+        display_name = _unique_candidate_name(candidate_file.name, used_names)
+        used_names.add(display_name)
+        candidate_data = candidate_file.getvalue()
+        bundle_hasher.update(display_name.encode("utf-8"))
+        bundle_hasher.update(candidate_data)
+        candidate_payloads[display_name] = candidate_data
+
+    candidate_documents, candidate_errors = load_candidate_documents(
+        candidate_payloads,
+        reading_mode,
+        max_bytes=MAX_PDF_BYTES,
+        reader=lambda data, mode: load_pdf(data, mode),
+    )
+
+if not candidate_documents:
+    st.error("Ningún CV pudo procesarse.")
+    for filename, error in candidate_errors.items():
+        st.error(f"{filename}: {error}")
+    st.stop()
+
+reviews = screen_candidates(candidate_documents, extraction)
+review_by_name = {review.filename: review for review in reviews}
+bundle_key = bundle_hasher.hexdigest()
+if st.session_state.get("screening_bundle_key") != bundle_key:
+    st.session_state.screening_bundle_key = bundle_key
     st.session_state.messages = []
+    st.session_state.chat_context_key = None
 
-# Usa primero la clave introducida en la sesión y, si no existe, la clave local de .env.
-agent = ApplicationAgent(pages, use_ollama=use_ollama, gemini_api_key=gemini_key)
-analysis = agent.analysis
-
-# --- ENCABEZADO Y DASHBOARD DE MÉTRICAS ---
+profile_title = next(
+    (line.strip() for line in profile_pages[0].text.splitlines() if line.strip()),
+    "Proceso de selección",
+)[:120]
 processed_label = "OCR local" if reading_mode == "ocr" else "lectura normal"
-st.markdown(f'<div style="color:#2563eb; font-weight:700; font-size:13px; text-transform:uppercase; letter-spacing:0.1em;">✓ Documento procesado exitosamente · {processed_label}</div>', unsafe_allow_html=True)
-st.title(analysis.title)
-
 st.markdown(
-    '<div class="privacy-banner">🛡️ <div><strong>Análisis Privado y Verificado</strong><br>La extracción se realiza localmente. Si Gemini está activo, solo se envía el texto necesario para responder y siempre se cita la evidencia original.</div></div>',
-    unsafe_allow_html=True
+    f'<div style="color:#2563eb; font-weight:700; font-size:13px; text-transform:uppercase; letter-spacing:0.1em;">✓ {len(reviews)} CV procesados · {processed_label}</div>',
+    unsafe_allow_html=True,
+)
+st.title(profile_title)
+st.markdown(
+    '<div class="privacy-banner">🛡️ <div><strong>Preselección asistida, decisión humana</strong><br>El puntaje solo mide coincidencia documental de términos. No valida experiencia, no infiere atributos personales y no aprueba ni rechaza candidatos.</div></div>',
+    unsafe_allow_html=True,
 )
 
+if extraction.excluded_sensitive:
+    st.warning(
+        f"Se excluyeron {len(extraction.excluded_sensitive)} criterios sensibles del puntaje. "
+        "Revísalos con el área legal o de cumplimiento."
+    )
+if candidate_errors:
+    with st.expander(f"⚠️ {len(candidate_errors)} CV no pudieron procesarse"):
+        for filename, error in candidate_errors.items():
+            st.error(f"{filename}: {error}")
+
+average_score = round(sum(review.score for review in reviews) / len(reviews))
 m1, m2, m3, m4 = st.columns(4)
-m1.metric("Requisitos del Perfil", len(analysis.requirements))
-m2.metric("Fechas y Plazos", len(analysis.dates))
-m3.metric("Condiciones Laborales", len(analysis.conditions))
-m4.metric("Alertas y Exclusiones", len(analysis.alerts) + len(analysis.exclusions))
+m1.metric("CV analizados", len(reviews))
+m2.metric("Criterios usados", len(extraction.criteria))
+m3.metric("Coincidencia promedio", f"{average_score}/100")
+m4.metric("Revisión manual", "Obligatoria")
 
-# --- PESTAÑAS PRINCIPALES ---
-overview_tab, chat_tab, evidence_tab = st.tabs(["📊 Resumen Ejecutivo", "💬 Pregúntale al Agente", "📄 Documento Fuente"])
+ranking_tab, detail_tab, chat_tab, source_tab = st.tabs(
+    ["📊 Ranking orientativo", "🔎 Detalle por CV", "💬 Consulta al agente", "📄 Fuentes"]
+)
 
-with overview_tab:
-    st.markdown("### 📋 Resumen del Documento")
-    st.info(analysis.summary)
-    c1, c2 = st.columns(2, gap="large")
-    with c1:
-        render_items("Requisitos y Perfil", "✓", analysis.requirements, "No se detectaron requisitos explícitos.")
-        render_items("Fechas Clave y Plazos", "◷", analysis.dates, "No se detectaron fechas o plazos de vigencia.")
-    with c2:
-        render_items("Condiciones Contractuales", "▣", analysis.conditions, "No se detectaron condiciones laborales específicas.")
-        render_items("Alertas y Cláusulas Especiales", "⚠", analysis.alerts + analysis.exclusions, "No se detectaron alertas automáticas.")
+with ranking_tab:
+    st.markdown("### Priorización para revisión documental")
+    st.caption("Ordenada por cobertura de términos; los empates se resuelven por nombre de archivo.")
+    ranking_rows = []
+    for position, review in enumerate(reviews, 1):
+        high = sum(match.status == "Coincidencia alta" for match in review.matches)
+        partial = sum(match.status == "Coincidencia parcial" for match in review.matches)
+        missing = sum(match.status == "Sin evidencia suficiente" for match in review.matches)
+        ranking_rows.append(
+            {
+                "Orden de revisión": position,
+                "CV": review.filename,
+                "Puntaje documental": review.score,
+                "Altas": high,
+                "Parciales": partial,
+                "Sin evidencia": missing,
+            }
+        )
+    st.dataframe(
+        ranking_rows,
+        hide_index=True,
+        use_container_width=True,
+        column_config={
+            "Puntaje documental": st.column_config.ProgressColumn(
+                "Puntaje documental", min_value=0, max_value=100, format="%d"
+            )
+        },
+    )
+    with st.expander("¿Cómo se calcula?"):
+        st.write(
+            "Para cada requisito se calcula qué proporción de sus términos aparece en el CV. "
+            "El puntaje es el promedio de esas coberturas, multiplicado por 100. "
+            "No se usan Gemini, Ollama ni datos sensibles para ordenar."
+        )
+
+selected_name = st.selectbox(
+    "Selecciona un CV para revisar",
+    [review.filename for review in reviews],
+    key="selected_candidate",
+)
+selected_review = review_by_name[selected_name]
+selected_pages = candidate_documents[selected_name]
+
+with detail_tab:
+    _render_review(selected_review)
+    if extraction.excluded_sensitive:
+        with st.expander("Criterios sensibles excluidos"):
+            for item in extraction.excluded_sensitive:
+                st.warning(f"Perfil, página {item.page}: {item.text}")
 
 with chat_tab:
-    st.caption("Consulta cualquier duda en lenguaje natural. El agente responderá basándose únicamente en el contenido del PDF.")
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-            
-    if question := st.chat_input("Ejemplo: ¿Cuál es la experiencia mínima solicitada?"):
-        st.session_state.messages.append({"role": "user", "content": question})
-        with st.chat_message("user"):
-            st.markdown(question)
-        with st.chat_message("assistant"):
-            with st.spinner("Consultando evidencia en el documento..."):
-                result = agent.ask(question)
-            st.markdown(result.answer)
-        st.session_state.messages.append({"role": "assistant", "content": result.answer})
-        history().add(uploaded.name, question, result.answer)
+    st.caption(
+        f"Pregunta únicamente sobre **{selected_name}** frente al perfil. "
+        "El agente recupera evidencia del perfil y de este CV; el ranking no cambia."
+    )
+    chat_context_key = f"{bundle_key}:{selected_name}"
+    if st.session_state.get("chat_context_key") != chat_context_key:
+        st.session_state.chat_context_key = chat_context_key
+        st.session_state.messages = []
 
-with evidence_tab:
-    st.markdown("### 📄 Texto y Tablas Extraídas por Página")
-    st.caption("Inspecciona la extracción técnica realizada por pdfplumber página por página.")
-    for page in pages:
-        with st.expander(f"Página {page.page}"):
+    question = st.chat_input("Ejemplo: ¿Qué experiencia del CV respalda el requisito de Python?")
+    if question:
+        st.session_state.messages.append({"role": "user", "content": question})
+        review_context = build_review_context(profile_pages, selected_pages)
+        agent = ApplicationAgent(
+            review_context,
+            use_ollama=use_ollama,
+            gemini_api_key=gemini_key,
+            use_remote_embeddings=False,
+        )
+        with st.spinner("Consultando evidencia del perfil y del CV..."):
+            result = agent.ask(question)
+        st.session_state.messages.append({"role": "assistant", "content": result.answer})
+
+    with st.container(height=520, autoscroll=True):
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+with source_tab:
+    st.markdown("### Perfil del puesto")
+    for page in profile_pages:
+        with st.expander(f"Perfil · página {page.page}"):
+            st.text(page.text)
+    st.markdown(f"### CV seleccionado: {selected_name}")
+    for page in selected_pages:
+        with st.expander(f"CV · página {page.page}"):
             st.text(page.text)

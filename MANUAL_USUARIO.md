@@ -1,208 +1,115 @@
-# Manual de usuario de PostulaIA
+# Manual de usuario — PostulaIA RR. HH.
 
-## 1. Descripción
+## 1. Qué hace la aplicación
 
-PostulaIA analiza convocatorias laborales en PDF. La aplicación identifica requisitos, fechas, condiciones, exclusiones y posibles alertas. También permite realizar preguntas y muestra las páginas utilizadas como evidencia.
+PostulaIA compara CV en PDF con los requisitos explícitos de un perfil de puesto. Presenta un orden de revisión, un puntaje documental y la evidencia encontrada en cada CV. La decisión de continuar o no con un candidato pertenece siempre al equipo de Recursos Humanos.
 
-La lectura normal y el OCR funcionan localmente. El agente puede usar Gemini Flash-Lite mediante una API key gratuita, Ollama local o el modo léxico sin LLM. PostulaIA no usa modelos Gemini Pro.
+La aplicación no verifica la autenticidad del CV, no evalúa personalidad y no debe usarse como mecanismo automático de contratación o descarte.
 
 ## 2. Requisitos
 
 - Windows 10 u 11.
 - Python 3.10 o superior.
-- Internet durante la instalación inicial de dependencias.
-- Un PDF digital o escaneado.
+- Un PDF con el perfil del puesto.
+- Entre uno y veinte CV en PDF.
+- Internet solo para instalar dependencias y, opcionalmente, usar Gemini.
 
-Comprueba que Python esté instalado:
+## 3. Instalación
 
-```powershell
-python --version
-```
-
-Si el comando no funciona, instala Python desde <https://www.python.org/downloads/> y activa **Add Python to PATH** durante la instalación.
-
-## 3. Descargar el proyecto
-
-Descarga el ZIP desde:
-
-<https://github.com/rodrigoasd123/PostulaIA/archive/refs/heads/main.zip>
-
-Después:
-
-1. Busca `PostulaIA-main.zip` en Descargas.
-2. Haz clic derecho y selecciona **Extraer todo**.
-3. Abre la carpeta extraída `PostulaIA-main`.
-
-No ejecutes el programa directamente dentro del ZIP.
-
-## 4. Instalación
-
-Abre PowerShell dentro de `PostulaIA-main` y ejecuta:
+Extrae el ZIP del repositorio. No ejecutes el proyecto dentro del ZIP. Abre PowerShell en la carpeta y ejecuta:
 
 ```powershell
 python -m venv .venv
-```
-
-Activa el entorno virtual:
-
-```powershell
 .\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 ```
 
-Si PowerShell bloquea la activación, ejecuta primero:
+Si PowerShell bloquea la activación:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
-Instala las dependencias:
-
-```powershell
-python -m pip install -r requirements.txt
-```
-
-La instalación solo es necesaria la primera vez.
-
-## 5. Ejecutar PostulaIA
-
-Con el entorno virtual activado, ejecuta:
+## 4. Ejecutar
 
 ```powershell
 python -m streamlit run frontend/streamlit_postulacion.py
 ```
 
-Abre esta dirección si el navegador no se inicia automáticamente:
+Abre `http://localhost:8501`. Mantén la terminal abierta y usa `Ctrl+C` para detener el programa.
 
-<http://localhost:8501>
+## 5. Revisar un lote de CV
 
-Mantén la terminal abierta mientras utilizas la aplicación. Para detenerla, presiona `Ctrl+C`.
+1. Elige el método de lectura:
+   - **Normal:** PDF digital con texto seleccionable.
+   - **OCR:** PDF escaneado o compuesto por imágenes. Es local y puede tardar más.
+2. Carga el **perfil del puesto o convocatoria**.
+3. Carga uno o varios **CV de postulantes**.
+4. Espera a que aparezca el mensaje de procesamiento exitoso.
+5. Abre **Ranking orientativo** para priorizar la lectura.
+6. En **Detalle por CV**, selecciona un archivo y revisa:
+   - texto exacto del requisito;
+   - página del perfil;
+   - porcentaje de cobertura;
+   - términos encontrados;
+   - página y fragmento del CV.
+7. Usa **Fuentes** para comprobar el texto extraído completo.
 
-## 6. Analizar una convocatoria
+Los estados significan:
 
-1. En **Método de lectura**, elige **Normal** para un PDF con texto seleccionable u **OCR** para un documento escaneado o fotografiado.
-2. Utiliza el panel lateral para cargar el PDF.
-3. Espera a que termine el procesamiento. El OCR puede tardar más porque analiza visualmente cada página.
-4. Revisa el resumen y los contadores.
-5. Consulta los requisitos, fechas, condiciones y alertas detectadas.
-6. Abre la pestaña del documento fuente para comprobar el texto extraído.
+- **Coincidencia alta:** al menos 75 % de los términos del requisito aparecen en el CV.
+- **Coincidencia parcial:** entre 35 % y 74 %.
+- **Sin evidencia suficiente:** menos de 35 %.
 
-El OCR se ejecuta localmente con RapidOCR y no requiere una API key. Después de extraer el texto, el mismo agente procesa ambos tipos de documento.
+Estos umbrales miden coincidencia de texto, no competencia profesional real.
 
-## 7. Hacer preguntas
+## 6. Consultar al agente
 
-Abre la pestaña **Pregúntale al agente** y escribe preguntas como:
+Selecciona un CV y abre **Consulta al agente**. Puedes preguntar, por ejemplo:
 
-- ¿Cuáles son los requisitos obligatorios?
-- ¿Cuál es la fecha límite?
-- ¿Qué documentos debo presentar?
-- ¿El contrato es permanente?
-- ¿Qué puede causar mi descalificación?
+- ¿Qué experiencia respalda el requisito de Python?
+- ¿El CV menciona el título solicitado?
+- ¿Qué requisitos no tienen evidencia suficiente?
+- ¿En qué página aparece la experiencia relevante?
 
-Una referencia como `[p. 2]` significa que la evidencia se encuentra en la página 2 del PDF.
+El campo de consulta permanece arriba y el historial se muestra debajo. Cambiar de candidato limpia el contexto para evitar mezclar CV.
 
-## 8. Gemini gratuito opcional
+Sin API key, el agente devuelve fragmentos locales. Con Gemini u Ollama, redacta una respuesta usando únicamente el perfil y el CV seleccionado. El chat no modifica el ranking.
 
-PostulaIA puede utilizar Gemini sin compartir la clave del creador de la aplicación:
+## 7. Criterios sensibles
 
-1. Crea una clave gratuita en Google AI Studio.
-2. Pégala en **API key gratuita de Gemini (opcional)**, en la barra lateral.
-3. Comprueba que aparezca el estado **Gemini gratuito listo**.
+PostulaIA excluye del puntaje requisitos relacionados con edad, género, estado civil, nacionalidad, religión, embarazo, discapacidad, fotografía, raza, etnia u orientación sexual. Si detecta uno, muestra una advertencia para revisión humana y legal.
 
-La clave introducida no se escribe en archivos y permanece únicamente en la sesión de Streamlit. Si no añades una clave, PostulaIA sigue funcionando con búsqueda local y evidencia por página.
+La lista es una protección técnica básica, no asesoría legal. El equipo debe aplicar la legislación y política de selección correspondientes.
 
-## 9. Modo básico sin LLM
+## 8. Privacidad
 
-PostulaIA funciona sin instalar un modelo de inteligencia artificial. En este modo utiliza búsqueda léxica para localizar fragmentos relevantes y devuelve la evidencia con su número de página.
+- Los PDF y el OCR se procesan localmente.
+- Los archivos, vectores, nombres de candidatos, preguntas y respuestas no se persisten en el flujo de RR. HH.
+- Si Gemini está activo, la búsqueda previa es local y solo se envían fragmentos recuperados del perfil y del CV seleccionado.
+- No uses una clave API compartida ni la publiques en GitHub.
+- Para demostraciones, utiliza datos ficticios.
 
-Deja desactivada la opción **Respuestas con Ollama local**.
+## 9. Problemas frecuentes
 
-Este modo no necesita API key, cuenta, tarjeta de crédito ni conexión permanente a internet.
+### No aparecen criterios
 
-## 10. Modo opcional con Llama 3.2
+El perfil debe indicar de forma explícita requisitos de experiencia, formación, título, certificación, conocimientos o habilidades. La aplicación no inventa criterios.
 
-Para obtener respuestas mejor redactadas, instala Ollama desde:
+### Un CV muestra error y los demás sí aparecen
 
-<https://ollama.com/download>
+El error se aísla por archivo. Revisa que ese PDF no esté vacío, dañado o protegido con contraseña. Si es un escaneo, vuelve a cargar el lote usando OCR.
 
-Descarga el modelo local:
+### El OCR tarda
 
-```powershell
-ollama pull llama3.2:3b
-```
-
-Comprueba que funciona:
-
-```powershell
-ollama run llama3.2:3b
-```
-
-Después ejecuta PostulaIA y activa **Respuestas con Ollama local**.
-
-No se utiliza una API key. PostulaIA se comunica con Ollama dentro de la computadora mediante:
-
-```text
-http://127.0.0.1:11434
-```
-
-## 11. Privacidad
-
-- La extracción de texto y el OCR se procesan localmente.
-- Si Gemini está configurado, el texto relevante se envía a la API de Gemini para generar respuestas. No se envía a OpenAI.
-- Las claves introducidas en la interfaz no se guardan en el proyecto ni se suben a GitHub.
-- Ollama y Llama se ejecutan localmente.
-- Las preguntas y respuestas pueden guardarse en una base SQLite local.
-- No se recomienda utilizar datos personales reales durante demostraciones públicas.
-
-## 12. Problemas frecuentes
-
-### `python` no se reconoce
-
-Instala Python y activa **Add Python to PATH**.
-
-### `No module named streamlit`
-
-Ejecuta:
-
-```powershell
-python -m pip install -r requirements.txt
-```
+Cada página se convierte en imagen y se reconoce localmente. Reduce la cantidad de CV o usa el modo Normal cuando el texto sea seleccionable.
 
 ### El puerto 8501 está ocupado
-
-Usa otro puerto:
 
 ```powershell
 python -m streamlit run frontend/streamlit_postulacion.py --server.port 8502
 ```
 
-Luego abre <http://localhost:8502>.
+### Gemini no responde
 
-### Ollama no responde
-
-Comprueba los modelos instalados:
-
-```powershell
-ollama list
-```
-
-Inicia el servicio si es necesario:
-
-```powershell
-ollama serve
-```
-
-### El PDF no contiene texto extraíble
-
-El documento probablemente está escaneado como imagen. Selecciona **OCR** en **Método de lectura** y vuelve a cargarlo.
-
-## 13. Inicio rápido
-
-```powershell
-cd "ruta\de\PostulaIA-main"
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python -m streamlit run frontend/streamlit_postulacion.py
-```
-
-Después abre <http://localhost:8501> y carga una convocatoria en PDF.
+El ranking seguirá funcionando. Retira la clave para usar el modo local o activa Ollama si está instalado.

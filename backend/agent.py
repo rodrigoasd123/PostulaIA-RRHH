@@ -7,12 +7,22 @@ from .rag_engine import HybridRAGEngine
 
 
 class ApplicationAgent:
-    def __init__(self, pages: list[PageText], use_ollama: bool = False, gemini_api_key: str | None = None):
+    def __init__(
+        self,
+        pages: list[PageText],
+        use_ollama: bool = False,
+        gemini_api_key: str | None = None,
+        use_remote_embeddings: bool = True,
+    ):
         self.pages = pages
         self.analysis: DocumentAnalysis = analyze_document(pages)
         self.use_ollama = use_ollama
         self.gemini_api_key = gemini_api_key
-        self.rag_engine = HybridRAGEngine(pages, gemini_api_key=gemini_api_key)
+        self.rag_engine = HybridRAGEngine(
+            pages,
+            gemini_api_key=gemini_api_key,
+            use_remote_embeddings=use_remote_embeddings,
+        )
         self.llm = OllamaClient()
 
     def ask(self, question: str) -> AgentAnswer:

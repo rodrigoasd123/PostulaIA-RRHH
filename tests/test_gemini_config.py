@@ -1,6 +1,9 @@
+from backend import rag_engine
+from backend.models import PageText
 from backend.rag_engine import (
     DEFAULT_FREE_GEMINI_MODEL,
     FREE_GEMINI_MODELS,
+    HybridRAGEngine,
     resolve_free_gemini_models,
 )
 
@@ -22,3 +25,26 @@ def test_pro_model_configuration_is_rejected(monkeypatch):
 
     assert models == FREE_GEMINI_MODELS
     assert "gemini-3.1-pro-preview" not in models
+
+
+def test_hr_mode_does_not_create_remote_embeddings(monkeypatch):
+    class FakeChatModel:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    class ForbiddenEmbeddings:
+        def __init__(self, **kwargs):
+            raise AssertionError("Los embeddings remotos no deben crearse para CV")
+
+    monkeypatch.setattr(rag_engine, "LANGCHAIN_AVAILABLE", True)
+    monkeypatch.setattr(rag_engine, "ChatGoogleGenerativeAI", FakeChatModel)
+    monkeypatch.setattr(rag_engine, "GoogleGenerativeAIEmbeddings", ForbiddenEmbeddings)
+
+    engine = HybridRAGEngine(
+        [PageText(1, "Experiencia con Python")],
+        gemini_api_key="x" * 24,
+        use_remote_embeddings=False,
+    )
+
+    assert engine.llm is not None
+    assert engine.vectorstore is None
