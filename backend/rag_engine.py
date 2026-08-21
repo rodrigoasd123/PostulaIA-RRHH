@@ -56,6 +56,7 @@ class HybridRAGEngine:
         self.gemini_api_key = re.sub(r'[\r\n\t\s"\']', '', key_raw)
         self.free_gemini_models = resolve_free_gemini_models()
         self.gemini_model = self.free_gemini_models[0]
+        self.last_gemini_model: str | None = None
         
         self.lexical_retriever = LexicalRetriever(pages)
         self.vectorstore = None
@@ -120,6 +121,7 @@ class HybridRAGEngine:
 
     def ask_gemini(self, question: str, evidence: list[Evidence]) -> str | None:
         """Genera respuesta probando modelos activos de Gemini con fallback inteligente."""
+        self.last_gemini_model = None
         if not evidence or not self.gemini_api_key:
             return None
 
@@ -154,6 +156,37 @@ class HybridRAGEngine:
                 continue
 
         return None
+
+    def probe_gemini_connection(self) -> tuple[bool, str]:
+        """Try a minimal Gemini call to confirm the configured key and model work."""
+        if not LANGCHAIN_AVAILABLE:
+            return False, "No estan disponibles las dependencias de Gemini/LangChain."
+        if not is_valid_gemini_key(self.gemini_api_key):
+            return False, "La clave no tiene el formato esperado para Gemini."
+
+        probe_prompt = (
+            "Responde solo con una palabra: OK. "
+            "No agregues explicaciones."
+        )
+        last_error: str | None = None
+        for model_name in self.free_gemini_models:
+            try:
+                llm_runner = ChatGoogleGenerativeAI(
+                    model=model_name,
+                    google_api_key=self.gemini_api_key,
+                    max_retries=1,
+                )
+                response = llm_runner.invoke(probe_prompt)
+                answer = response.content.strip() if hasattr(response, "content") else str(response).strip()
+                if answer:
+                    return True, f"Conexion OK con {model_name}: {answer[:80]}"
+            except Exception as exc:
+                last_error = str(exc)
+                continue
+
+        if last_error:
+            return False, last_error
+        return False, "No se pudo obtener una respuesta valida de Gemini."
 
     @property
     def is_gemini_active(self) -> bool:

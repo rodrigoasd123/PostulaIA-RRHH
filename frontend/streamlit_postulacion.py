@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import os
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -18,6 +20,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from backend import (
     ApplicationAgent,
+    CacheService,
     CandidateReview,
     Evidence,
     PdfReadError,
@@ -26,8 +29,10 @@ from backend import (
     load_candidate_documents,
     read_pdf,
     screen_candidates,
+    sha256_bytes,
 )
 from backend.retrieval import normalize
+from backend.rag_engine import DEFAULT_FREE_GEMINI_MODEL, HybridRAGEngine, is_valid_gemini_key
 
 st.set_page_config(
     page_title="PostulaIA RR. HH. - Revisión de CV",
@@ -124,6 +129,54 @@ st.markdown(
         box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
     }
 
+    /* Sidebar controls need explicit contrast because all sidebar text is light. */
+    [data-testid="stSidebar"] .stButton > button {
+        background: #2563eb !important;
+        color: #ffffff !important;
+        border: 1px solid #3b82f6 !important;
+        border-radius: 10px !important;
+        font-weight: 700 !important;
+        opacity: 1 !important;
+    }
+
+    [data-testid="stSidebar"] .stButton > button * {
+        color: #ffffff !important;
+    }
+
+    [data-testid="stSidebar"] .stButton > button:hover:not(:disabled) {
+        background: #1d4ed8 !important;
+        border-color: #60a5fa !important;
+    }
+
+    [data-testid="stSidebar"] .stButton > button:disabled {
+        background: #334155 !important;
+        color: #cbd5e1 !important;
+        border-color: #475569 !important;
+        cursor: not-allowed;
+    }
+
+    [data-testid="stSidebar"] .stButton > button:disabled * {
+        color: #cbd5e1 !important;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stExpander"] details {
+        background: #0f172a !important;
+        border: 1px solid #334155 !important;
+        border-radius: 12px !important;
+        overflow: hidden;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stExpander"] summary {
+        background: #1e293b !important;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {
+        background: #273549 !important;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stExpander"] summary * {
+        color: #f8fafc !important;
+    }
     /* Branding Header */
     .brand-container {
         display: flex;
@@ -412,13 +465,24 @@ def render_items(title: str, icon: str, items: list[Evidence], empty: str) -> No
             st.caption(f"📍 Fuente: página {item.page}")
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=24 * 60 * 60, max_entries=64)
 def load_pdf(data: bytes, reading_mode: str):
     return read_pdf(data, mode=reading_mode)
+@st.cache_resource(show_spinner=False)
+def get_cache_service() -> CacheService:
+    service = CacheService(ROOT_DIR / "data" / "cache")
+    service.cleanup_expired()
+    return service
 
 
 configured_gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
 MAX_PDF_BYTES = 20 * 1024 * 1024
+try:
+    cache_service = get_cache_service()
+    cache_error = None
+except Exception:
+    cache_service = None
+    cache_error = "La caché vectorial no está disponible; se usará búsqueda léxica."
 
 
 def _unique_candidate_name(original: str, used: set[str]) -> str:
@@ -496,22 +560,86 @@ with st.sidebar:
     gemini_key = session_gemini_key or configured_gemini_key
     use_ollama = st.toggle("Modo Offline (Ollama Local)", value=False)
 
+    gemini_key_hash = hashlib.sha256(gemini_key.encode("utf-8")).hexdigest() if gemini_key else None
+    if st.session_state.get("gemini_probe_key_hash") != gemini_key_hash:
+        st.session_state.pop("gemini_probe_result", None)
+        st.session_state["gemini_probe_key_hash"] = gemini_key_hash
+
     if use_ollama:
         st.markdown('<div class="status-badge" style="color:#60a5fa!important;border-color:#3b82f6;">🦙 Ollama activado</div>', unsafe_allow_html=True)
     elif gemini_key:
-        st.markdown('<div class="status-badge">🟢 Gemini listo para consultas</div>', unsafe_allow_html=True)
-        st.caption("El ranking no usa Gemini; siempre se calcula localmente.")
+        st.markdown('<div class="status-badge">🟢 Gemini configurado</div>', unsafe_allow_html=True)
+        st.caption("El ranking no usa Gemini; solo se activa para consultas si la conexión pasa la prueba.")
     else:
-        st.markdown('<div class="status-badge">🟢 Comparador local listo</div>', unsafe_allow_html=True)
-        st.caption("El ranking funciona sin API key.")
+        st.markdown('<div class="status-badge">⚪ Sin Gemini configurado</div>', unsafe_allow_html=True)
+        st.caption("Puedes usar la app sin API key; el respaldo local seguirá funcionando.")
+
+    with st.expander("Estado de Gemini", expanded=bool(gemini_key)):
+        st.caption("Comprueba si la clave realmente se conecta a la API antes de hacer preguntas.")
+        format_ok = is_valid_gemini_key(gemini_key)
+        st.write(f"- Clave detectada: {'sí' if gemini_key else 'no'}")
+        st.write(f"- Formato válido: {'sí' if format_ok else 'no'}")
+        st.write(f"- Modelo preferido: {DEFAULT_FREE_GEMINI_MODEL if gemini_key else 'N/A'}")
+        test_clicked = st.button("Verificar conexión", disabled=not format_ok, key="gemini_probe_button")
+        if test_clicked:
+            with st.spinner("Probando conexión con Gemini..."):
+                probe_engine = HybridRAGEngine([], gemini_api_key=gemini_key, use_remote_embeddings=False)
+                ok, message = probe_engine.probe_gemini_connection()
+            st.session_state["gemini_probe_result"] = {"ok": ok, "message": message}
+        probe_result = st.session_state.get("gemini_probe_result")
+        if probe_result:
+            if probe_result["ok"]:
+                st.success(f"Conexión verificada: {probe_result['message']}")
+            else:
+                st.error(f"No se pudo conectar: {probe_result['message']}")
+        elif gemini_key:
+            st.info("La clave está cargada, pero aún no has ejecutado la prueba de conexión.")
+    with st.expander("Caché vectorial local · 24 h"):
+        if cache_error:
+            st.warning(cache_error)
+        elif cache_service:
+            if st.session_state.get("cache_storage_disabled", False):
+                st.info("La caché está desactivada después del borrado manual.")
+                if st.button("Reactivar caché local", key="reactivate_vector_cache"):
+                    st.session_state.cache_storage_disabled = False
+                    st.rerun()
+            stats = cache_service.stats()
+            st.write(f"- Documentos vectorizados: {stats.documents}")
+            st.write(f"- Respuestas reutilizables: {stats.answers}")
+            st.write(f"- Espacio utilizado: {stats.bytes_on_disk / (1024 * 1024):.2f} MB")
+            st.caption(
+                "Guarda localmente fragmentos, embeddings y respuestas durante 24 horas. "
+                "No guarda los PDF originales ni la API key."
+            )
+            confirm_clear = st.checkbox(
+                "Confirmo que deseo borrar los datos de caché",
+                key="confirm_clear_vector_cache",
+            )
+            if st.button(
+                "Borrar caché local",
+                disabled=not confirm_clear,
+                key="clear_vector_cache_button",
+            ):
+                result = cache_service.clear_all()
+                st.cache_data.clear()
+                st.session_state.messages = []
+                st.session_state.cache_storage_disabled = True
+                st.success(
+                    f"Caché eliminada: {result.removed_documents} documentos y "
+                    f"{result.removed_answers} respuestas."
+                )
 
     st.divider()
     st.caption(
-        "🔒 Los PDF, el OCR y el puntaje se procesan localmente y no se guardan. "
+        "🔒 Los PDF originales, el OCR y el puntaje se procesan localmente. "
+        "Los fragmentos, embeddings y respuestas pueden conservarse localmente hasta 24 horas. "
         "Si activas Gemini, solo se envían fragmentos recuperados al hacer una consulta."
     )
 
 
+active_cache_service = (
+    None if st.session_state.get("cache_storage_disabled", False) else cache_service
+)
 if not job_profile or not candidate_files:
     st.markdown(
         """
@@ -646,8 +774,8 @@ m2.metric("Criterios usados", len(extraction.criteria))
 m3.metric("Coincidencia promedio", f"{average_score}/100")
 m4.metric("Revisión manual", "Obligatoria")
 
-ranking_tab, detail_tab, chat_tab, source_tab = st.tabs(
-    ["📊 Ranking orientativo", "🔎 Detalle por CV", "💬 Consulta al agente", "📄 Fuentes"]
+ranking_tab, detail_tab, chat_tab, source_tab, cache_tab = st.tabs(
+    ["📊 Ranking orientativo", "🔎 Detalle por CV", "💬 Consulta al agente", "📄 Fuentes", "🗄️ Caché local"]
 )
 
 with ranking_tab:
@@ -692,6 +820,20 @@ selected_name = st.selectbox(
 )
 selected_review = review_by_name[selected_name]
 selected_pages = candidate_documents[selected_name]
+active_profile_hash = sha256_bytes(profile_data)
+active_cv_hash = sha256_bytes(candidate_payloads[selected_name])
+profile_identity = None
+cv_identity = None
+if active_cache_service:
+    with st.spinner("Preparando búsqueda vectorial local..."):
+        profile_identity = active_cache_service.prepare_document(profile_data, profile_pages, "profile")
+        cv_identity = active_cache_service.prepare_document(
+            candidate_payloads[selected_name],
+            selected_pages,
+            "cv",
+        )
+    if not profile_identity or not cv_identity:
+        st.info("La búsqueda vectorial local no está disponible; se mantiene la búsqueda léxica.")
 
 with detail_tab:
     _render_review(selected_review)
@@ -719,16 +861,31 @@ with chat_tab:
             use_ollama=use_ollama,
             gemini_api_key=gemini_key,
             use_remote_embeddings=False,
+            cache_service=active_cache_service,
+            cache_profile_hash=active_profile_hash,
+            cache_cv_hash=active_cv_hash,
+            profile_identity=profile_identity,
+            cv_identity=cv_identity,
         )
         with st.spinner("Consultando evidencia del perfil y del CV..."):
             result = agent.ask(question)
-        st.session_state.messages.append({"role": "assistant", "content": result.answer})
+        st.session_state.messages.append(
+            {"role": "assistant", "content": result.answer, "origin": result.origin}
+        )
 
     with st.container(height=520, autoscroll=True):
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
-
+                if message["role"] == "assistant":
+                    origin_label = {
+                        "cache": "⚡ Respuesta reutilizada desde caché local",
+                        "generated": "✨ Respuesta generada en esta consulta",
+                        "local": "💻 Respuesta extractiva local",
+                        "blocked": "🛡️ Respuesta protegida por moderación",
+                    }.get(message.get("origin"), "")
+                    if origin_label:
+                        st.caption(origin_label)
 with source_tab:
     st.markdown("### Perfil del puesto")
     for page in profile_pages:
@@ -738,3 +895,86 @@ with source_tab:
     for page in selected_pages:
         with st.expander(f"CV · página {page.page}"):
             st.text(page.text)
+
+with cache_tab:
+    st.markdown("### Respuestas reutilizables del contexto actual")
+    st.caption(
+        f"Solo se muestran preguntas asociadas al perfil cargado y a **{selected_name}**. "
+        "No se muestran respuestas ni fragmentos de evidencia."
+    )
+    if not active_cache_service:
+        st.info("La caché local está desactivada o no se encuentra disponible.")
+    else:
+        try:
+            cache_metrics = active_cache_service.response_metrics()
+            cached_answers = active_cache_service.list_responses(
+                active_profile_hash,
+                active_cv_hash,
+            )
+        except Exception:
+            st.warning("No se pudo consultar el estado de la caché local.")
+        else:
+            metric_cols = st.columns(5)
+            metric_cols[0].metric("Aciertos exactos", cache_metrics.exact_hits)
+            metric_cols[1].metric("Aciertos semánticos", cache_metrics.semantic_hits)
+            metric_cols[2].metric("Fallos", cache_metrics.misses)
+            metric_cols[3].metric("Tasa de acierto", f"{cache_metrics.hit_rate:.0%}")
+            metric_cols[4].metric("Llamadas evitadas", cache_metrics.calls_avoided)
+            st.caption(
+                "Las métricas son globales desde el último borrado total. "
+                "Eliminar una respuesta individual no modifica el histórico."
+            )
+
+            delete_notice = st.session_state.pop("cache_delete_notice", None)
+            if delete_notice:
+                st.success(delete_notice)
+
+            if not cached_answers:
+                st.info("Todavía no hay respuestas reutilizables para este perfil y CV.")
+            for entry in cached_answers:
+                created_label = datetime.fromtimestamp(entry.created_at).astimezone().strftime(
+                    "%d/%m/%Y %H:%M"
+                )
+                remaining_seconds = max(0, int(entry.expires_at - time.time()))
+                remaining_hours, remaining_remainder = divmod(remaining_seconds, 3600)
+                remaining_minutes = remaining_remainder // 60
+                with st.container(border=True):
+                    st.markdown(f"**{entry.question_preview}**")
+                    st.caption(
+                        f"Ruta: `{entry.response_route}` · Creada: {created_label} · "
+                        f"Expira en: {remaining_hours} h {remaining_minutes} min · "
+                        f"Reutilizaciones: {entry.reuse_count}"
+                    )
+                    pending_key = "pending_cache_delete"
+                    if st.session_state.get(pending_key) == entry.entry_id:
+                        st.warning("¿Eliminar únicamente esta respuesta reutilizable?")
+                        confirm_col, cancel_col, _ = st.columns([1, 1, 4])
+                        if confirm_col.button(
+                            "Confirmar eliminación",
+                            key=f"confirm_delete_cached_answer_{entry.entry_id}",
+                            type="primary",
+                        ):
+                            deleted = active_cache_service.delete_response(
+                                entry.entry_id,
+                                active_profile_hash,
+                                active_cv_hash,
+                            )
+                            st.session_state.pop(pending_key, None)
+                            st.session_state["cache_delete_notice"] = (
+                                "Respuesta eliminada de la caché local."
+                                if deleted
+                                else "La respuesta ya no estaba disponible."
+                            )
+                            st.rerun()
+                        if cancel_col.button(
+                            "Cancelar",
+                            key=f"cancel_delete_cached_answer_{entry.entry_id}",
+                        ):
+                            st.session_state.pop(pending_key, None)
+                            st.rerun()
+                    elif st.button(
+                        "Eliminar respuesta",
+                        key=f"delete_cached_answer_{entry.entry_id}",
+                    ):
+                        st.session_state[pending_key] = entry.entry_id
+                        st.rerun()

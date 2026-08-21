@@ -32,6 +32,7 @@ class AgentAnswer:
     answer: str
     evidence: list[Evidence]
     found: bool
+    origin: str = "local"
 
 
 @dataclass(frozen=True)

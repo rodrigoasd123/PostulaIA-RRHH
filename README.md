@@ -22,6 +22,9 @@ PostulaIA/
 │   ├── pdf_reader.py         → lectura PDF normal y OCR local
 │   ├── rag_engine.py         → recuperación FAISS/léxica y Gemini opcional
 │   ├── agent.py              → agente de consulta con evidencia
+│   ├── vector_cache.py       → índices FAISS persistentes por documento
+│   ├── answer_cache.py       → respuestas exactas/semánticas en SQLite
+│   ├── cache_service.py      → TTL, estadísticas y borrado seguro
 │   └── history.py            → componente heredado; no se usa en el flujo de RR. HH.
 ├── frontend/
 │   └── streamlit_postulacion.py
@@ -56,12 +59,18 @@ Un CV ilegible no detiene el resto del lote. Si el perfil no contiene requisitos
 ## IA y privacidad
 
 - La lectura, OCR, fragmentación, criterios y puntaje se ejecutan localmente.
-- Los PDF cargados no se guardan en disco por la aplicación.
-- El chat de RR. HH. no persiste preguntas, respuestas ni nombres de candidatos.
-- Sin API key, el chat usa recuperación léxica local con citas.
+- Los PDF originales y las API keys no se guardan en la caché.
+- Bajo `data/cache/` se conservan localmente fragmentos, embeddings FAISS y respuestas reutilizables durante un TTL fijo de 24 horas. Son datos derivados potencialmente personales.
+- La caché se aísla por SHA-256 del perfil y CV, versiones del modelo, prompt y moderación; nunca reutiliza respuestas entre CV distintos.
+- La pestaña **Caché local** muestra, solo para el perfil y CV activos, la pregunta normalizada y truncada, ruta, creación, vencimiento y cantidad de reutilizaciones; no expone la respuesta ni su evidencia.
+- Las métricas locales distinguen aciertos exactos, aciertos semánticos y fallos; la tasa se calcula sobre esos eventos y las llamadas evitadas equivalen a los aciertos. Se conservan hasta el borrado total.
+- RR. HH. puede borrar una respuesta concreta con confirmación sin afectar documentos, índices ni métricas históricas, o borrar toda la caché desde **Caché vectorial local · 24 h**. Después del borrado total queda desactivada hasta pulsar **Reactivar caché local**.
+- Sin API key, el chat usa recuperación vectorial local cuando está disponible y conserva el fallback léxico con citas.
 - Con Gemini, la recuperación es local y solo se envían los fragmentos recuperados del perfil y del CV seleccionado al hacer una pregunta.
 - La clave pegada en la interfaz vive solo en la sesión. `.env` permanece excluido de Git.
 - Ollama permite redactar respuestas localmente con `llama3.2:3b`.
+
+La búsqueda vectorial usa FastEmbed con `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (384 dimensiones). La primera consulta descarga el modelo local, aproximadamente 200–250 MB. Si el modelo, SQLite o FAISS fallan, el chat continúa con recuperación léxica y el ranking no cambia. Esta versión depende de los permisos del sistema operativo, no cifra la caché a nivel de aplicación y está limitada a uso local por una sola persona; no debe desplegarse como servicio compartido.
 
 ## Configuración opcional
 
@@ -79,4 +88,4 @@ No publiques una clave personal. Cada usuario debe usar la suya.
 python -m pytest -q
 ```
 
-La trazabilidad de requisitos y evidencia se encuentra en `specs/000-hr-cv-screening/`.
+La trazabilidad de requisitos y evidencia se encuentra en `specs/000-hr-cv-screening/` y `specs/003-cache-vectorial-respuestas/`.

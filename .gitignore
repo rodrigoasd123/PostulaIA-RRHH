@@ -9,9 +9,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.pytest-tmp/
 
 # Data / SQLite databases generated locally
 data/*.db
+data/cache/
 *.sqlite3
 
 # Environment credentials
@@ -21,3 +23,11 @@ data/*.db
 tmp/
 output/
 .vscode/
+# Local development agents and dependency caches
+.agents/
+.pip-cache/
+skills-lock.json
+
+# Local application logs
+postulaia.stdout.log
+postulaia.stderr.log
