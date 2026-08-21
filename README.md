@@ -36,12 +36,16 @@ PostulaIA/
 
 ## Instalación y ejecución en Windows
 
+Descarga y descomprime el ZIP (o clona el repositorio), abre PowerShell dentro de la carpeta del proyecto y ejecuta:
+
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python -m streamlit run frontend/streamlit_postulacion.py
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m streamlit run frontend/streamlit_postulacion.py
 ```
+
+No es necesario ejecutar `Activate.ps1`; invocar el Python del entorno directamente evita los bloqueos de políticas de ejecución de PowerShell. La instalación se realiza una sola vez. En ejecuciones posteriores basta con usar el último comando.
 
 Abre `http://localhost:8501` si el navegador no se inicia automáticamente.
 
